@@ -135,13 +135,21 @@ def _ttt_step(state, action: str):
         if not _ttt_status(g).startswith("Turno"): state["fin"] = True
         return state
     return state
+# ---------------- Adaptador A* (web, rápido y con random walls) ----------------
+import heapq, random
 
-# ---------------- Adaptador A* (web, SIN pygame) ----------------
 def _astar_init(mod):
-    n = 25
-    cells = [0]*(n*n)
-    origen, meta = 0, n*n-1
-    return {"n":n,"cells":cells,"origen":origen,"meta":meta,"frames":[],"idx":0,"path":[],"msg":"Pinta paredes con click. Shift=Origen, Alt=Meta."}
+    n = 50
+    return {
+        "n": n,
+        "cells": [0]*(n*n),   # 0=libre, 1=pared
+        "origen": None,
+        "meta": None,
+        "frames": [],
+        "idx": 0,
+        "path": [],
+        "msg": "Coloca paredes (izq/der arrastre). Shift=Origen, Alt=Meta, Espacio=Ejecutar, C=Limpiar."
+    }
 
 def _astar_view(state):
     fr = state["frames"][state["idx"]] if state.get("frames") else {}
@@ -149,13 +157,13 @@ def _astar_view(state):
     if fr.get("actual") is not None:
         padre = dict(fr.get("padre", []))
         cur = fr["actual"]
-        parcial = [cur]
         while cur in padre:
-            cur = padre[cur]
             parcial.append(cur)
-            if cur == state["origen"]:
-                break
-        parcial.reverse()
+            cur = padre[cur]
+        if state["origen"] is not None:
+            parcial.append(state["origen"])
+        parcial = list(reversed(parcial))
+
     return {
         "n": state["n"], "cells": state["cells"],
         "origen": state["origen"], "meta": state["meta"],
@@ -173,48 +181,158 @@ def _astar_view(state):
     }
 
 def _astar_step(state, action: str, mod):
+    def ok(i): return 0 <= i < state["n"]*state["n"]
+
     if action == "clear":
-        state.update({"cells":[0]*(state["n"]*state["n"]),"frames":[],"idx":0,"path":[],"msg":"Limpio"})
+        n = state["n"]
+        state.update({"cells":[0]*(n*n),"frames":[],"idx":0,"path":[],"origen":None,"meta":None,"msg":"Limpio"})
         return state
+
     if action == "run":
-        Lab = getattr(mod, "LaberintoAEstrella")  # de a-algorithm.py (adaptador web)
-        lab = Lab(state["n"], state["cells"], state["origen"], state["meta"])
-        out = lab.buscar_camino_animado()
+        s, t = state["origen"], state["meta"]
+        if s is None or t is None:
+            state["msg"]="Debe fijar origen y meta (Shift/Alt + clic)."; return state
+        if state["cells"][s]==1 or state["cells"][t]==1:
+            state["msg"]="Origen/Meta no pueden ser pared."; return state
+        out = _astar_compute_frames(state["n"], state["cells"], s, t)
         state["frames"] = out.get("frames", [])
         state["idx"] = 0
         state["path"] = out.get("camino", [])
         state["msg"] = "Listo" if state["path"] else "Sin solución"
         return state
+
     if action == "next":
-        if state.get("frames"):
-            state["idx"] = min(state["idx"]+1, len(state["frames"])-1)
+        if state.get("frames"): state["idx"] = min(state["idx"]+1, len(state["frames"])-1)
         return state
+
     if action == "prev":
-        if state.get("frames"):
-            state["idx"] = max(state["idx"]-1, 0)
+        if state.get("frames"): state["idx"] = max(state["idx"]-1, 0)
         return state
+
     if action.startswith("toggle:"):
         i = int(action.split(":")[1])
-        if i not in (state["origen"], state["meta"]):
+        if ok(i) and i not in (state.get("origen"), state.get("meta")):
             state["cells"][i] = 0 if state["cells"][i]==1 else 1
-            state["frames"]=[]; state["path"]=[]
-            state["msg"]="Pared actualizada"
+            state["frames"]=[]; state["path"]=[]; state["msg"]="Pared actualizada"
         return state
+
+    if action.startswith("paint:"):
+        # paint:<idx>:<0|1>
+        _, idx, val = action.split(":")
+        i, v = int(idx), int(val)
+        if ok(i) and i not in (state.get("origen"), state.get("meta")) and v in (0,1):
+            state["cells"][i] = v
+            state["frames"]=[]; state["path"]=[]; state["msg"]="Pared actualizada"
+        return state
+
+    if action.startswith("bulk:"):
+        # bulk:<0|1>:i1,i2,i3
+        _, v, csv = action.split(":")
+        v = int(v)
+        if v in (0,1):
+            for tok in csv.split(","):
+                if not tok: continue
+                i = int(tok)
+                if ok(i) and i not in (state.get("origen"), state.get("meta")):
+                    state["cells"][i] = v
+            state["frames"]=[]; state["path"]=[]; state["msg"]="Pared actualizada (lote)"
+        return state
+
     if action.startswith("set_origen:"):
         i = int(action.split(":")[1])
-        if state["cells"][i]==0 and i != state["meta"]:
-            state["origen"]=i; state["frames"]=[]; state["path"]=[]
-            state["msg"]="Origen cambiado"
+        if ok(i) and state["cells"][i]==0 and i != state.get("meta"):
+            state["origen"]=i; state["frames"]=[]; state["path"]=[]; state["msg"]="Origen cambiado"
         return state
+
     if action.startswith("set_meta:"):
         i = int(action.split(":")[1])
-        if state["cells"][i]==0 and i != state["origen"]:
-            state["meta"]=i; state["frames"]=[]; state["path"]=[]
-            state["msg"]="Meta cambiada"
+        if ok(i) and state["cells"][i]==0 and i != state.get("origen"):
+            state["meta"]=i; state["frames"]=[]; state["path"]=[]; state["msg"]="Meta cambiada"
         return state
+
+    if action.startswith("random:"):
+        # random:<p> con p in [0,1] (limitamos a 0.6)
+        p = float(action.split(":")[1])
+        p = max(0.0, min(0.6, p))
+        n = state["n"]; s, t = state.get("origen"), state.get("meta")
+        for i in range(n*n):
+            if i==s or i==t: continue
+            state["cells"][i] = 1 if random.random() < p else 0
+        state["frames"]=[]; state["path"]=[]; state["msg"] = f"Pared aleatoria {int(p*100)}%"
+        return state
+
     return state
 
-# ---------------- Inicialización por archivo ----------------
+# --- A* mínimo (Manhattan, 4-dir) para generar frames como en el video ---
+def _to_rc(idx, n): return divmod(idx, n)
+def _to_idx(r, c, n): return r*n + c
+def _h(a, b, n):
+    ra, ca = _to_rc(a, n); rb, cb = _to_rc(b, n)
+    return abs(ra-rb)+abs(ca-cb)
+
+def _vecinos(i, n, libres):
+    r,c = _to_rc(i, n)
+    if r+1<n and libres[_to_idx(r+1,c,n)]==1: yield _to_idx(r+1,c,n)
+    if r-1>=0 and libres[_to_idx(r-1,c,n)]==1: yield _to_idx(r-1,c,n)
+    if c+1<n and libres[_to_idx(r,c+1,n)]==1: yield _to_idx(r,c+1,n)
+    if c-1>=0 and libres[_to_idx(r,c-1,n)]==1: yield _to_idx(r,c-1,n)
+
+def _astar_compute_frames(n, cells, origen, meta):
+    libres = [1 if cells[k]==0 else 0 for k in range(n*n)]
+    s, t = origen, meta
+    if libres[s]!=1 or libres[t]!=1:
+        return {"frames": [], "camino": []}
+
+    g = {s: 0.0}
+    f = {s: float(_h(s,t,n))}
+    came = {}
+    visit = set()
+    open_set = {s}
+    heap = [(f[s], 0, s)]
+    tie = 0
+    frames = []
+
+    def snap(actual):
+        frames.append({
+            "actual": actual,
+            "visitados": sorted(list(visit)),
+            "frontera": [x for (_,__,x) in heap if x in open_set],
+            "g_actual": None if actual is None else g.get(actual),
+            "f_actual": None if actual is None else f.get(actual),
+            "padre": list(came.items())
+        })
+
+    snap(None)
+    while heap:
+        _, __, u = heapq.heappop(heap)
+        if u not in open_set: continue
+        open_set.remove(u)
+        visit.add(u)
+        snap(u)
+
+        if u == t:
+            path=[t]
+            while path[-1] in came:
+                path.append(came[path[-1]])
+                if path[-1]==s: break
+            path.reverse()
+            return {"frames": frames, "camino": path}
+
+        for v in _vecinos(u, n, libres):
+            cand = g[u] + 1.0
+            if cand < g.get(v, float("inf")):
+                came[v] = u
+                g[v] = cand
+                f[v] = cand + _h(v, t, n)
+                if v not in open_set and v not in visit:
+                    tie += 1
+                    heapq.heappush(heap, (f[v], tie, v))
+                    open_set.add(v)
+
+    return {"frames": frames, "camino": []}
+
+
+# ----------------------------------------------------- Inicialización por archivo ------------------------------------------------
 def init_for(algo_name: str):
     path = _algo_find(algo_name)
     mod = load_module_by_path(path, f"mod_{Path(algo_name).name.replace('.','_')}")

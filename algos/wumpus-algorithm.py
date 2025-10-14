@@ -1,104 +1,104 @@
 <!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Wumpus – Visualizador</title>
-<style>
-:root { font-family: system-ui, -apple-system, Segoe UI, Roboto; }
-body { margin:0; background:#0f172a; color:#e5e7eb; }
-header { display:flex; align-items:center; padding:12px 16px; background:#111827; border-bottom:1px solid #1f2937; }
-h1 { margin:0; font-size:1.05rem; color:#fafafa; }
-.container{ max-width:1100px; margin:16px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 360px; gap:16px; }
-.card{ background:#111827; border:1px solid #1f2937; border-radius:14px; padding:16px; }
-.title{ font-weight:600; color:#fafafa; margin-bottom:8px; }
-#board.grid{ display:grid; gap:1px; background:#0b101d; padding:4px; border-radius:10px; }
-.cell{ display:flex; align-items:center; justify-content:center; background:#1f2937; border-radius:4px; aspect-ratio:1/1; font-size:.85rem; }
-.cell:hover{ filter:brightness(1.08); cursor:pointer; }
-.btn{ background:#2563eb; color:#e5e7eb; border:1px solid #2563eb; border-radius:10px; padding:10px 14px; margin-right:8px; }
-.btn.secondary{ background:#374151; border-color:#374151; }
-.stat{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.92rem; color:#cbd5e1; }
-.badge{ display:inline-block; padding:2px 6px; border-radius:6px; border:1px solid #374151; margin-right:4px; }
-</style>
-</head>
-<body>
-<header><h1>Wumpus – Visualizador</h1></header>
-
-<div class="container">
-  <div class="card">
-    <div class="title">Mundo</div>
-    <div id="board" class="grid"></div>
-    <div style="margin-top:8px; color:#cbd5e1;">
-      <span class="badge">A: Agente</span>
-      <span class="badge">W: Wumpus</span>
-      <span class="badge">P: Pozo</span>
-      <span class="badge">G: Oro</span>
-      <span class="badge">? : Desconocido</span>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Unity Web Player | Wumpus</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <link rel="manifest" href="manifest.webmanifest">
+  </head>
+  <body>
+    <div id="unity-container">
+      <canvas id="unity-canvas" width=960 height=600 tabindex="-1"></canvas>
+      <div id="unity-loading-bar">
+        <div id="unity-logo"></div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
+      </div>
+      <div id="unity-warning"> </div>
     </div>
-  </div>
+    <script>
+      window.addEventListener("load", function () {
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.register("ServiceWorker.js");
+        }
+      });
 
-  <div class="card">
-    <div class="title">Controles</div>
-    <div>
-      <button class="btn" id="step">Paso</button>
-      <button class="btn secondary" id="auto">Auto</button>
-      <button class="btn secondary" id="reset">Reiniciar</button>
-      <a class="btn secondary" href="/">Volver</a>
-    </div>
-    <div class="title" style="margin-top:10px;">Percepciones</div>
-    <div id="percep" class="stat"></div>
-    <div class="title" style="margin-top:10px;">Estado</div>
-    <div id="stat" class="stat"></div>
-  </div>
-</div>
+      var container = document.querySelector("#unity-container");
+      var canvas = document.querySelector("#unity-canvas");
+      var loadingBar = document.querySelector("#unity-loading-bar");
+      var progressBarFull = document.querySelector("#unity-progress-bar-full");
+      var warningBanner = document.querySelector("#unity-warning");
 
-<script>
-const name = "wumpus-algorithm.py";
-const board = document.getElementById('board');
-const stat = document.getElementById('stat');
-const percep = document.getElementById('percep');
-const N = 6; // tamaño por defecto de la grilla (render)
+      // Shows a temporary message banner/ribbon for a few seconds, or
+      // a permanent error message on top of the canvas if type=='error'.
+      // If type=='warning', a yellow highlight color is used.
+      // Modify or remove this function to customize the visually presented
+      // way that non-critical warnings and error messages are presented to the
+      // user.
+      function unityShowBanner(msg, type) {
+        function updateBannerVisibility() {
+          warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
+        }
+        var div = document.createElement('div');
+        div.innerHTML = msg;
+        warningBanner.appendChild(div);
+        if (type == 'error') div.style = 'background: red; padding: 10px;';
+        else {
+          if (type == 'warning') div.style = 'background: yellow; padding: 10px;';
+          setTimeout(function() {
+            warningBanner.removeChild(div);
+            updateBannerVisibility();
+          }, 5000);
+        }
+        updateBannerVisibility();
+      }
 
-let autoTimer = null;
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/Web.loader.js";
+      var config = {
+        arguments: [],
+        dataUrl: buildUrl + "/Web.data",
+        frameworkUrl: buildUrl + "/Web.framework.js",
+        codeUrl: buildUrl + "/Web.wasm",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "Edgardml",
+        productName: "Wumpus",
+        productVersion: "1.0",
+        showBanner: unityShowBanner,
+      };
 
-async function j(url, opts={}){ const r = await fetch(url, opts); return r.json(); }
-async function getState(){ return j(`/api/${name}/state`); }
-async function act(action, payload={}){
-  return j(`/api/${name}/act`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action, ...payload})});
-}
-async function restart(){ return j(`/api/${name}/restart`, {method:'POST'}); }
+      // By default Unity keeps WebGL canvas render target size matched with
+      // the DOM size of the canvas element (scaled by window.devicePixelRatio)
+      // Set this to false if you want to decouple this synchronization from
+      // happening inside the engine, and you would instead like to size up
+      // the canvas DOM size and WebGL render target sizes yourself.
+      // config.matchWebGLToCanvasSize = false;
 
-function draw(state){
-  // estado esperado (opcional):
-  // { n, celdas:[code por celda], agente:{i,j,orient}, percepciones:['brisa','hedor'...], msg:'' }
-  const n = state.n || N;
-  board.innerHTML = '';
-  board.style.gridTemplateColumns = `repeat(${n},1fr)`;
+      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        // Mobile device style: fill the whole browser client area with the game canvas:
+        var meta = document.createElement('meta');
+        meta.name = 'viewport';
+        meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
+        document.getElementsByTagName('head')[0].appendChild(meta);
+      }
 
-  for (let i=0;i<n*n;i++){
-    const d = document.createElement('div');
-    d.className = 'cell';
-    const code = (state.celdas && state.celdas[i]) || 0;
-    // 0: ?, 1: libre, 2: pozo, 3: wumpus, 4: oro, 5: agente
-    if (code===2) d.textContent='P';
-    if (code===3) d.textContent='W';
-    if (code===4) d.textContent='G';
-    if (code===5) d.textContent='A';
-    board.appendChild(d);
-  }
-  percep.textContent = (state.percepciones || []).join(', ') || '—';
-  stat.textContent = state.msg || '';
-}
+      loadingBar.style.display = "block";
 
-async function update(){ const {estado} = await getState(); draw(estado || {}); }
-
-document.getElementById('step').onclick = ()=> act('step').then(update);
-document.getElementById('auto').onclick = ()=>{
-  if (autoTimer){ clearInterval(autoTimer); autoTimer=null; return; }
-  autoTimer = setInterval(()=> act('step').then(update), 500);
-};
-document.getElementById('reset').onclick = ()=> restart().then(update);
-
-update();
-</script>
-</body>
+      var script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = () => {
+        createUnityInstance(canvas, config, (progress) => {
+          progressBarFull.style.width = 100 * progress + "%";
+        }).then((unityInstance) => {
+          loadingBar.style.display = "none";
+        }).catch((message) => {
+          alert(message);
+        });
+      };
+      document.body.appendChild(script);
+    </script>
+  </body>
 </html>

@@ -1,214 +1,187 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Tres en Raya – Minimax (Python en el navegador)</title>
-  <meta name="description" content="TicTacToe con Minimax en Python (Pyodide), publicado en GitHub Pages.">
-  <style>
-    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu; }
-    body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:#0f172a; color:#e5e7eb; margin:0; }
-    .card { background:#111827; padding:24px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.35); width:min(480px,92vw); }
-    h1 { margin:0 0 12px; font-size:1.25rem; color:#fafafa; }
-    .meta { color:#9ca3af; font-size:.92rem; margin-bottom:16px; display:flex; justify-content:space-between; gap:8px; }
-    .board { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
-    .cell { aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; font-size:2rem; border-radius:12px;
-            background:#1f2937; color:#f9fafb; border:1px solid #374151; text-decoration:none; transition:transform .12s ease, background .2s ease; user-select:none; }
-    .cell:hover { transform:translateY(-1px); background:#243041; cursor:pointer; }
-    .disabled { pointer-events:none; opacity:.65; }
-    .win { background:#064e3b !important; border-color:#047857; box-shadow:0 0 18px rgba(34,197,94,.35); }
-    .footer { display:flex; gap:8px; margin-top:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
-    .btn { background:#2563eb; color:#fff; padding:10px 14px; border-radius:10px; text-decoration:none; border:0; cursor:pointer; }
-    .btn.secondary { background:#374151; }
-    .status { color:#cbd5e1; min-height:1.2em; }
-    .msg.win { color:#22c55e; } .msg.draw { color:#f59e0b; } .msg.lose { color:#ef4444; }
-    .small { font-size:.9rem; color:#94a3b8; }
-  </style>
-  <!-- Pyodide (Python en el navegador) -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>A* — Visualizador estilo Tech With Tim</title>
+<style>
+:root { font-family: system-ui, -apple-system, Segoe UI, Roboto; }
+body { margin:0; background:#0f172a; color:#e5e7eb; }
+header{ padding:12px 16px; background:#111827; border-bottom:1px solid #1f2937; }
+h1{ margin:0; font-size:1.05rem; color:#fafafa; }
+.wrap{ max-width:1000px; margin:16px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 360px; gap:14px; }
+.card{ background:#111827; border:1px solid #1f2937; border-radius:12px; padding:12px; }
+.title{ font-weight:600; margin-bottom:6px; color:#fafafa; }
+.grid{ display:grid; gap:1px; background:#0b101d; padding:6px; border-radius:10px; user-select:none; }
+.cell{ aspect-ratio:1/1; border-radius:2px; background:#1f2937; }
+.cell:hover{ filter:brightness(1.07); cursor:pointer; }
+.row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.btn{ background:#2563eb; border:1px solid #2563eb; color:#e5e7eb; border-radius:10px; padding:8px 12px; }
+.btn.s{ background:#374151; border-color:#374151; }
+.small{ color:#9ca3af; font-size:.9rem; }
+.stat{ font-family: ui-monospace, Menlo, monospace; font-size:.95rem; color:#cbd5e1; }
+.badge{ display:inline-flex; align-items:center; gap:6px; border:1px solid #374151; background:#1f2937; padding:2px 8px; border-radius:999px; font-size:.86rem; margin-right:6px; }
+.dot{ width:12px; height:12px; border-radius:3px; display:inline-block; }
+.warn{ color:#f59e0b; }
+</style>
 </head>
 <body>
+<header><h1>A* — Visualizador estilo Tech With Tim (Flask)</h1></header>
+
+<div class="wrap">
   <div class="card">
-    <h1>Tres en Raya – Minimax (Python)</h1>
-    <div class="meta">
-      <div>Tú: <strong id="jhumano">?</strong> | Bot: <strong id="jbot">?</strong></div>
-      <div class="small">Publicación estática (GitHub Pages)</div>
-    </div>
-
-    <div id="board" class="board" aria-label="Tablero 3x3"></div>
-
-    <div class="footer">
-      <div class="status"><span id="statusText"></span></div>
-      <div style="display:flex; gap:8px;">
-        <button id="btnAlt" class="btn secondary" type="button" title="Alternar quién empieza">Alternar inicio</button>
-        <button id="btnReset" class="btn" type="button">Reiniciar</button>
-      </div>
+    <div class="title">Grilla</div>
+    <div id="board" class="grid"></div>
+    <div style="margin-top:8px">
+      <span class="badge"><span class="dot" style="background:#1f2937"></span>Libre</span>
+      <span class="badge"><span class="dot" style="background:#000000"></span>Pared</span>
+      <span class="badge"><span class="dot" style="background:#f59e0b"></span>Origen</span>
+      <span class="badge"><span class="dot" style="background:#22d3ee"></span>Meta</span>
+      <span class="badge"><span class="dot" style="background:#ef4444"></span>Cerrado</span>
+      <span class="badge"><span class="dot" style="background:#22c55e"></span>Abierto</span>
+      <span class="badge"><span class="dot" style="background:#a78bfa"></span>Actual</span>
+      <span class="badge"><span class="dot" style="background:#8b5cf6"></span>Camino</span>
     </div>
   </div>
 
+  <div class="card">
+    <div class="title">Controles</div>
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn" id="run" disabled>Ejecutar (Espacio)</button>
+      <button class="btn s" id="prev">◀</button>
+      <button class="btn s" id="next">▶</button>
+      <button class="btn s" id="auto">Auto</button>
+      <button class="btn s" id="clear">Limpiar (C)</button>
+      <a class="btn s" href="/">Volver</a>
+    </div>
+
+    <div class="row" style="margin-bottom:8px">
+      <label class="small">Pared aleatoria:
+        <input id="dens" type="range" min="0" max="60" value="30" />
+        <span id="densv" class="small">30%</span>
+      </label>
+      <button class="btn s" id="rnd">Aleatorio</button>
+    </div>
+
+    <div class="small">
+      <b>Izq arrastre:</b> pared • <b>Der arrastre:</b> borrar • <b>Shift+Click:</b> origen • <b>Alt+Click:</b> meta •
+      <b>Espacio:</b> ejecutar • <b>C:</b> limpiar
+    </div>
+    <div id="msg" class="small warn" style="margin-top:6px;"></div>
+
+    <div class="title" style="margin-top:10px">Estado</div>
+    <div id="info" class="stat"></div>
+    <div id="cost" class="stat"></div>
+  </div>
+</div>
+
 <script>
-const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-let pyodide = null;
+const name="a-algorithm.py";
+const board=document.getElementById('board');
+const info=document.getElementById('info');
+const cost=document.getElementById('cost');
+const msg=document.getElementById('msg');
+const btnRun=document.getElementById('run');
+const slider=document.getElementById('dens'), densv=document.getElementById('densv');
 
-// Estado UI
-let board = Array(9).fill('-');
-let human = localStorage.getItem('ttt_human') || 'X';     // alternancia persistente
-let bot   = human === 'X' ? 'O' : 'X';
-let statusEl = document.getElementById('statusText');
-let jhEl = document.getElementById('jhumano');
-let jbEl = document.getElementById('jbot');
-const boardEl = document.getElementById('board');
+let autoTimer=null;
+let isDragging=false;
+let dragValue=null; // 1=pared, 0=libre
+let batch=[], batchTimer=null;
 
-function updateMeta() {
-  jhEl.textContent = human; jbEl.textContent = bot;
+slider.oninput=()=>{ densv.textContent = slider.value+"%"; };
+
+async function j(u,o={}){const r=await fetch(u,o);return r.json();}
+async function getS(){return j(`/api/${name}/state`);}
+async function act(a){return j(`/api/${name}/act`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a})});}
+
+function color(i,st){
+  const {origen,meta,cells,visitados=[],frontera=[],actual=null,path=[],path_parcial=[]}=st;
+  if(i===origen) return '#f59e0b';
+  if(i===meta)   return '#22d3ee';
+  if(path.includes(i)||path_parcial.includes(i)) return '#8b5cf6';
+  if(actual===i) return '#a78bfa';
+  if(visitados.includes(i)) return '#ef4444';
+  if(frontera.includes(i))  return '#22c55e';
+  return (cells[i]===1)?'#000000':'#1f2937';
 }
-function winline(b) {
-  for (const [a,b2,c] of LINES) { if (b[a] !== '-' && b[a]===b[b2] && b[a]===b[c]) return {line:[a,b2,c], win:b[a]}; }
-  return {line:[], win:null};
+
+function validRun(st){
+  if(st.origen==null || st.meta==null) return "Debe fijar origen y meta (Shift/Alt + clic).";
+  if(st.cells[st.origen]===1) return "El origen no puede ser una pared.";
+  if(st.cells[st.meta]===1)   return "La meta no puede ser una pared.";
+  return "";
 }
-function full(b) { return !b.includes('-'); }
-function render() {
-  boardEl.innerHTML = '';
-  const {line, win} = winline(board);
-  for (let i=0;i<9;i++) {
-    const v = board[i];
-    const cell = document.createElement('div');
-    cell.className = 'cell';
-    if (line.includes(i)) cell.classList.add('win');
-    cell.textContent = v === '-' ? '' : v;
-    if (v === '-' && !win && !full(board)) {
-      cell.onclick = () => humanMove(i);
-    } else {
-      cell.classList.add('disabled');
-    }
-    boardEl.appendChild(cell);
+
+function sendBatchSoon(){
+  if(batch.length===0) return;
+  if(batchTimer) return;
+  batchTimer = setTimeout(async ()=>{
+    const val = dragValue ?? 1;
+    const uniq = Array.from(new Set(batch)); batch = [];
+    const csv = uniq.join(',');
+    await act(`bulk:${val}:${csv}`);
+    batchTimer = null;
+    update();
+  }, 25); // ~40 fps
+}
+
+function paint(st){
+  const n=st.n||50;
+  board.innerHTML=''; board.style.gridTemplateColumns=`repeat(${n},1fr)`;
+  for(let i=0;i<n*n;i++){
+    const d=document.createElement('div'); d.className='cell';
+    d.style.background=color(i,st);
+
+    d.onmousedown=(ev)=>{
+      ev.preventDefault();
+      if(ev.shiftKey){ act(`set_origen:${i}`).then(update); return; }
+      if(ev.altKey){ act(`set_meta:${i}`).then(update); return; }
+      isDragging=true;
+      dragValue = (ev.button===2) ? 0 : 1;   // izq=pared(1), der=borrar(0)
+      batch.push(i); sendBatchSoon();
+    };
+    d.onmouseenter=()=>{
+      if(!isDragging) return;
+      batch.push(i); sendBatchSoon();
+    };
+    d.oncontextmenu=(e)=>{ e.preventDefault(); };
+    board.appendChild(d);
   }
-  if (win) statusEl.innerHTML = `<span class="msg ${win===human?'win':'lose'}">Gana ${win}</span>`;
-  else if (full(board)) statusEl.innerHTML = `<span class="msg draw">¡Empate!</span>`;
-  else statusEl.textContent = `Turno de ${turnOf()}`;
-}
-function turnOf() {
-  const x = board.filter(c=>c==='X').length;
-  const o = board.filter(c=>c==='O').length;
-  return x===o ? 'X' : 'O';
+  document.onmouseup=()=>{ isDragging=false; dragValue=null; };
+
+  const idx=(st.frame_idx??0)+1, tot=st.frames_len??0;
+  info.textContent=`${st.msg||''} ${tot?`• Frame ${idx}/${tot}`:''} • Visitados=${(st.visitados||[]).length} • Frontera=${(st.frontera||[]).length} • Camino=${(st.path||[]).length}`;
+  cost.textContent=(st.g_actual!=null&&st.f_actual!=null)?`Nodo actual: g=${st.g_actual}  f=${st.f_actual}`:'';
+
+  const warn = validRun(st);
+  msg.textContent = warn;
+  btnRun.disabled = !!warn;
 }
 
-async function ensurePy() {
-  if (!pyodide) {
-    pyodide = await loadPyodide();
-    await pyodide.runPythonAsync(document.getElementById('pycode').textContent);
-  }
-}
+async function update(){ const {estado}=await getS(); paint(estado||{}); }
 
-async function humanMove(i) {
-  if (board[i] !== '-' || winline(board).win || full(board)) return;
-  if (turnOf() !== human) return; // evita clicks fuera de turno
-  board[i] = human; render();
-  if (winline(board).win || full(board)) return;
-  await botMove();  // IA
-}
-
-async function botMove() {
-  await ensurePy();
-  // Llamamos a la función Python choose_move(board, bot, human)
-  const move = await pyodide.runPythonAsync(`
-from js import board_js, bot_js, human_js
-choose_move(board_js.to_py(), bot_js, human_js)
-  `, { globals: pyodide.toPy({}) });
-}
-
-document.getElementById('btnReset').onclick = async () => {
-  board = Array(9).fill('-'); render();
-  // Si empieza Bot (humano = 'O'), que haga su primer movimiento:
-  if (human === 'O') {
-    await ensurePy();
-    await pyodide.runPythonAsync(`
-from js import board_js, bot_js, human_js
-choose_move(board_js.to_py(), bot_js, human_js)
-    `);
-  }
-};
-document.getElementById('btnAlt').onclick = () => {
-  // Alternar quién empieza y persistir
-  human = (human === 'X') ? 'O' : 'X';
-  bot = (human === 'X') ? 'O' : 'X';
-  localStorage.setItem('ttt_human', human);
-  updateMeta();
-  board = Array(9).fill('-');
-  render();
-  // Si ahora empieza el bot:
-  if (human === 'O') {
-    ensurePy().then(()=>pyodide.runPythonAsync(`
-from js import board_js, bot_js, human_js
-choose_move(board_js.to_py(), bot_js, human_js)
-    `));
-  }
+document.getElementById('rnd').onclick = async ()=>{
+  const p = Math.max(0, Math.min(0.6, parseInt(slider.value,10)/100)); // 0..0.6
+  await act(`random:${p}`);
+  update();
 };
 
-// Variables compartidas JS→Python
-Object.defineProperty(window, "board_js", { get(){ return board; }});
-Object.defineProperty(window, "human_js", { get(){ return human; }});
-Object.defineProperty(window, "bot_js",   { get(){ return bot; }});
+btnRun.onclick = ()=> act('run').then(update);
+document.getElementById('next').onclick= ()=> act('next').then(update);
+document.getElementById('prev').onclick= ()=> act('prev').then(update);
+document.getElementById('clear').onclick=()=> act('clear').then(update);
 
-// Inicializar
-updateMeta(); render();
-if (human === 'O') { ensurePy().then(()=>pyodide.runPythonAsync(`
-from js import board_js, bot_js, human_js
-choose_move(board_js.to_py(), bot_js, human_js)
-`)); }
-</script>
+document.getElementById('auto').onclick = ()=>{
+  if(autoTimer){ clearInterval(autoTimer); autoTimer=null; return; }
+  autoTimer=setInterval(()=> act('next').then(update), 40);
+};
 
-<!-- Código Python ejecutado en el navegador con Pyodide -->
-<script id="pycode" type="text/plain">
-# --- Minimax en Python para TicTacToe (versión web, sin input/print) ---
-import math
-from js import board_js, bot_js, human_js
+document.addEventListener('keydown',(e)=>{
+  if(e.code==='Space'){ e.preventDefault(); if(!btnRun.disabled) btnRun.click(); }
+  if(e.key==='c' || e.key==='C'){ document.getElementById('clear').click(); }
+});
 
-LINES = [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
-
-def winner(b):
-    for a,b2,c in LINES:
-        if b[a] != '-' and b[a]==b[b2]==b[c]:
-            return b[a]
-    return None
-
-def actions(b):
-    return [i for i,v in enumerate(b) if v=='-']
-
-def terminal(b):
-    return winner(b) is not None or '-' not in b
-
-def minimax(b, player, max_player):
-    other = 'O' if player=='X' else 'X'
-    win = winner(b)
-    if win is not None:
-        # victoria del que jugó antes
-        return {'pos': None, 'score': (1 if win==max_player else -1) * (len(actions(b))+1)}
-    if '-' not in b:
-        return {'pos': None, 'score': 0}
-
-    best = {'pos': None, 'score': -math.inf if player==max_player else math.inf}
-    for mv in actions(b):
-        nb = b.copy(); nb[mv] = player
-        sc = minimax(nb, other, max_player)
-        sc = {'pos': mv, 'score': sc['score']}
-        if player==max_player:
-            if sc['score'] > best['score']: best = sc
-        else:
-            if sc['score'] < best['score']: best = sc
-    return best
-
-def choose_move(board, bot, human):
-    # mueve bot solo si es su turno
-    x = sum(1 for c in board if c=='X'); o = sum(1 for c in board if c=='O')
-    turn = 'X' if x==o else 'O'
-    if turn != bot: 
-        return None
-    best = minimax(board, bot, max_player=bot)
-    pos = best['pos']
-    if pos is not None and board[pos]=='-':
-        board[pos] = bot
-    return pos
+update();
 </script>
 </body>
 </html>
