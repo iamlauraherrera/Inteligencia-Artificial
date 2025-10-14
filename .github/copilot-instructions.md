@@ -58,4 +58,8 @@ El archivo contiene `if __name__ == "__main__"` para que la ejecución CLI no se
 ## Solución rápida de problemas
 - ImportError al cargar un motor: revisa la traza en la terminal que corre `app.py`.
 - Error de versión de Python: confirma `python --version` y usa 3.9+.
+<<<<<<< HEAD
 - Peticiones a `/api/*` fallan: abrir DevTools del navegador y revisar la pestaña Network y la consola; también vigila la salida de la terminal del servidor.
+=======
+- Peticiones a `/api/*` fallan: abrir DevTools del navegador y revisar la pestaña Network y la consola; también vigila la salida de la terminal del servidor.
+>>>>>>> c153a6bd1b84f03823db6cb20dbf26d49d4da375
