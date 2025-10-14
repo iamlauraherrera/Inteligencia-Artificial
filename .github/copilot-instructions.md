@@ -1,43 +1,61 @@
-# Copilot Instructions for Inteligencia-Artificial
+# Instrucciones de ejecución (rápidas) — Inteligencia-Artificial
 
-## Visión General
-Este proyecto implementa algoritmos de Machine Learning, centrado en un juego de Tic-Tac-Toe (Triqui) con una IA basada en Minimax. La arquitectura principal es una aplicación web Flask (`app.py`) que interactúa con la lógica del juego definida en `minimax-algorithm.py`.
+Estas instrucciones muestran cómo ejecutar los algoritmos y la UI del proyecto. El uso de un virtual environment (venv) es opcional pero recomendado.
 
-## Componentes Clave
-- **`app.py`**: Servidor Flask. Carga dinámicamente el módulo de juego, gestiona sesiones y rutas web. Adapta nombres de atributos ES/EN para máxima compatibilidad.
-- **`minimax-algorithm.py`**: Lógica del juego Tic-Tac-Toe y la IA Minimax. Define clases `TicTacToe`, `JugadorHumano`, `JugadorComputadora` y el algoritmo recursivo Minimax.
-- **`templates/index.html`**: Interfaz web para jugar.
+## Resumen rápido
+- La UI y el simulador web están en `app.py` (usa Flask). Por defecto busca algoritmos en `./algos`.
+- El motor Minimax (CLI) está en `algos/minimax-algorithm.py` y puede ejecutarse por separado, solo sin interfaz de simulación.
 
-## Patrones y Convenciones
-- **Carga dinámica de módulos**: `app.py` usa `importlib` para cargar el archivo de lógica del juego, permitiendo cambiar el motor de juego vía la variable de entorno `JUEGO_PATH`.
-- **Compatibilidad ES/EN**: Helpers en `app.py` permiten que la lógica del juego use nombres en español o inglés sin modificar el frontend.
-- **Sesiones en memoria**: Las partidas se almacenan en un diccionario `_store` indexado por un token de sesión.
-- **Rutas principales**:
-  - `/`: Muestra el tablero y el estado actual.
-  - `/jugar/<int:i>`: Realiza el movimiento del jugador y de la IA.
-  - `/reiniciar`: Reinicia la partida.
+## Requisitos mínimos
+- Python 3.9+ (por las anotaciones `list[str]`).
 
-## Flujo de Datos
-- El usuario interactúa vía la web (`index.html`).
-- Las acciones llaman a rutas Flask, que modifican el estado del juego y actualizan el tablero.
-- La IA responde automáticamente tras el movimiento humano.
+## Opcional: crear y activar virtualenv
+Recomendado para aislar dependencias. Opcional si instalas globalmente.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
-## Workflows de Desarrollo
-- **Ejecución local**: `python app.py` (el puerto por defecto es 8080, configurable vía `PORT`).
-- **No hay tests automatizados ni scripts de build**.
-- **Dependencias**: Solo librerías estándar de Python y Flask.
+## Instalar dependencias
+Usando el archivo `requirements.txt` creado en la raíz:
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+Si prefieres instalar solo Flask:
+```bash
+pip install Flask>=2.0,<3.0
+```
 
-## Ejemplo de Extensión
-Para agregar otro motor de juego, impleméntalo en un archivo Python y usa la variable de entorno `JUEGO_PATH` para cargarlo sin modificar el frontend.
+## Ejecutar servidor web (UI)
+1. Desde la raíz del repo:
+```bash
+export PORT=8080   # opcional, por defecto 8080
+python app.py
+```
+2. Abrir en tu navegador: `http://localhost:8080` (o usar `$BROWSER http://localhost:8080`).
+3. Abrir por GitHub https://github.com/iamlauraherrera/Inteligencia-Artificial
 
-## Reglas Específicas para Agentes AI
-- Usa helpers de `app.py` para acceder a atributos del juego (compatibilidad ES/EN).
-- No modifiques la lógica de sesión ni la carga dinámica sin justificación.
-- Mantén la interfaz web en `templates/index.html` sincronizada con los cambios en la lógica del juego.
-- Documenta cualquier convención nueva en este archivo.
+Notas:
+- `app.py` busca los archivos listados en la variable `ALGO_FILES` dentro de `app.py` y los carga desde `ALGO_DIR` (`algos` por defecto).
 
-## Referencias
-- `app.py`, `minimax-algorithm.py`, `templates/index.html`, `README.md`
+## Ejecutar el motor Minimax en consola (modo CLI)
+```bash
+python algos/minimax-algorithm.py
+```
+El archivo contiene `if __name__ == "__main__"` para que la ejecución CLI no se dispare al importarlo desde `app.py`.
 
----
-¿Hay secciones poco claras o faltantes? Indica qué detalles necesitas para mejorar estas instrucciones.
+## Variables de entorno útiles
+- `PORT` — puerto donde corre la app web (por defecto 8080).
+- `ALGO_DIR` — carpeta donde buscar algoritmos (por defecto `algos`).
+- `ALGO_FILES` — lista declarada en `app.py` con nombres permitidos (edítala si añades nuevos archivos).
+
+## Integración y convenciones específicas
+- El adaptador de `app.py` para TicTacToe del algoritmo minmax (Triqui) espera que el módulo exponga `TicTacToe` y una clase de IA (`JugadorComputadora`) con método `movimiento_maquina`.
+- `app.py` incluye helpers que permiten compatibilidad entre nombres en español e inglés
+- Evita ejecutar lógica a nivel de módulo en tus archivos de algoritmo: usa `if __name__ == "__main__":` para código CLI.
+
+## Solución rápida de problemas
+- ImportError al cargar un motor: revisa la traza en la terminal que corre `app.py`.
+- Error de versión de Python: confirma `python --version` y usa 3.9+.
+- Peticiones a `/api/*` fallan: abrir DevTools del navegador y revisar la pestaña Network y la consola; también vigila la salida de la terminal del servidor.
