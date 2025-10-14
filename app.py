@@ -1,0 +1,111 @@
+# app.py
+# Interfaz web para tu TicTacToe cargando minimax-algorithm.py por ruta (sin renombrar).
+
+import os, secrets, importlib.util
+from flask import Flask, render_template, redirect, url_for, session
+
+# --- Carga del módulo por ruta (soporta nombres con guion) ---
+RUTA_JUEGO = os.environ.get("JUEGO_PATH", "minimax-algorithm.py")
+
+def cargar_modulo_por_ruta(ruta, nombre_logico="juego_mod"):
+    spec = importlib.util.spec_from_file_location(nombre_logico, ruta)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"No se pudo cargar el módulo desde {ruta}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+juego = cargar_modulo_por_ruta(RUTA_JUEGO)
+
+# --- Helpers para soportar nombres ES/EN sin tocar tu lógica ---
+def _tablero(g):
+    return getattr(g, "tablero", getattr(g, "board"))
+
+def _set(g, i, v):
+    _tablero(g)[i] = v
+
+def _humano(g):
+    return getattr(g, "jugadorHumano", getattr(g, "humanPLayer"))
+
+def _bot(g):
+    return getattr(g, "jugadorBot", getattr(g, "botPlayer"))
+
+def _gana(g, letra):
+    if hasattr(g, "jugador_gana"):  # ES
+        return g.jugador_gana(_tablero(g), letra)
+    return g.is_player_win(_tablero(g), letra)  # EN
+
+def _lleno(g):
+    if hasattr(g, "tablero_lleno"):  # ES
+        return g.tablero_lleno(_tablero(g))
+    return g.is_board_filled(_tablero(g))  # EN
+
+# --- Flask app ---
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)
+_store = {}  # sesiones en memoria (simple)
+
+def _nueva_partida():
+    g = juego.TicTacToe()  # no llamamos iniciar()
+    # Bot en ES o EN
+    if hasattr(juego, "JugadorComputadora"):
+        bot = juego.JugadorComputadora(_bot(g))
+    else:
+        bot = juego.ComputerPlayer(_bot(g))
+    return g, bot
+
+def _state():
+    sid = session.get("sid")
+    if not sid or sid not in _store:
+        sid = secrets.token_urlsafe(16)
+        session["sid"] = sid
+        _store[sid] = _nueva_partida()
+    return sid, _store[sid]
+
+@app.route("/")
+def home():
+    _, (g, bot) = _state()
+    t = _tablero(g)
+
+    # Mensajes de fin (sin limpiar consola)
+    mensaje = clase = ""
+    if _gana(g, _humano(g)):
+        mensaje, clase = f"¡Ganas con {_humano(g)}!", "win"
+    elif _gana(g, _bot(g)):
+        mensaje, clase = f"El bot gana con {_bot(g)}.", "lose"
+    elif _lleno(g):
+        mensaje, clase = "¡Empate!", "draw"
+
+    # Turno sugerido
+    x = sum(1 for c in t if c == "X")
+    o = sum(1 for c in t if c == "O")
+    turno = "X" if x == o else "O"
+
+    return render_template("index.html",
+                           tablero=t, jhumano=_humano(g), jbot=_bot(g),
+                           mensaje=mensaje, clase=clase, turno=turno)
+
+@app.route("/jugar/<int:i>")
+def jugar(i):
+    _, (g, bot) = _state()
+    t = _tablero(g)
+    if 0 <= i < 9 and t[i] == "-":
+        _set(g, i, _humano(g))
+        if _gana(g, _humano(g)) or _lleno(g):
+            return redirect(url_for("home"))
+
+        ia = getattr(bot, "movimiento_maquina", None) or getattr(bot, "machine_move")
+        pos = ia(_tablero(g))
+        if pos is not None and t[pos] == "-":
+            _set(g, pos, _bot(g))
+    return redirect(url_for("home"))
+
+@app.route("/reiniciar")
+def reiniciar():
+    sid, _ = _state()
+    _store[sid] = _nueva_partida()
+    return redirect(url_for("home"))
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))  # Codespaces suele usar 8080
+    app.run(host="0.0.0.0", port=port, debug=True)
