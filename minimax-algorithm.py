@@ -284,5 +284,6 @@ class JugadorComputadora(TicTacToe):
         return casilla
 
 # Iniciar el juego
-tictactoe = TicTacToe()
-tictactoe.iniciar()
+if __name__ == "__main__":
+    tictactoe = TicTacToe()
+    tictactoe.iniciar()
