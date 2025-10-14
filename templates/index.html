@@ -10,43 +10,132 @@
     .card { background:#111827; color:#e5e7eb; padding:24px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.35); width:min(480px,92vw); }
     h1 { margin:0 0 12px; font-size:1.25rem; color:#fafafa; }
     .meta { color:#9ca3af; font-size:.92rem; margin-bottom:16px; }
-    .board { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    #board { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
     .cell { aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; font-size:2rem; border-radius:12px;
-            background:#1f2937; color:#f9fafb; border:1px solid #374151; text-decoration:none; transition:transform .06s }
+            background:#1f2937; color:#f9fafb; border:1px solid #374151; text-decoration:none; transition:transform .12s ease, background .2s ease }
     .cell:hover { transform:translateY(-1px); background:#243041; }
-    .disabled { pointer-events:none; opacity:.6; }
+    .disabled { pointer-events:none; opacity:.65; }
+    .win { background:#064e3b !important; border-color:#047857; animation: glow 1.2s ease-in-out infinite alternate; }
+    @keyframes glow { from { box-shadow:0 0 0 rgba(34,197,94,.0);} to { box-shadow:0 0 18px rgba(34,197,94,.45);} }
+    .pop { animation: pop .18s ease-out; }
+    @keyframes pop { from { transform:scale(.6); opacity:.2; } to { transform:scale(1); opacity:1; } }
+
     .footer { display:flex; gap:8px; margin-top:16px; align-items:center; justify-content:space-between; }
-    .btn { background:#2563eb; color:#fff; padding:10px 14px; border-radius:10px; text-decoration:none; }
+    .btn { background:#2563eb; color:#fff; padding:10px 14px; border-radius:10px; text-decoration:none; border:0; cursor:pointer; }
     .btn.secondary { background:#374151; }
+    .status { color:#cbd5e1; min-height:1.2em; }
     .msg.win { color:#22c55e; } .msg.draw { color:#f59e0b; } .msg.lose { color:#ef4444; }
+
+    /* confetti mínimo */
+    .confetti { position: fixed; top: -10px; width: 8px; height: 12px; opacity: .9; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Tres en Raya</h1>
-    <div class="meta">Tú: <strong>{{ jhumano }}</strong> &nbsp; | &nbsp; Bot: <strong>{{ jbot }}</strong></div>
-
-    <div class="board">
-      {% for i in range(9) %}
-        {% set v = tablero[i] %}
-        {% if mensaje or v != '-' %}
-          <div class="cell disabled">{{ v if v != '-' else '' }}</div>
-        {% else %}
-          <a class="cell" href="{{ url_for('jugar', i=i) }}"></a>
-        {% endif %}
-      {% endfor %}
+    <div class="meta">
+      Tú: <strong id="jhumano">{{ jhumano }}</strong> &nbsp; | &nbsp; Bot: <strong id="jbot">{{ jbot }}</strong>
     </div>
+
+    <!-- Render inicial del servidor, luego JS actualiza sin recargar -->
+    <div id="board" aria-label="Tablero 3x3"></div>
 
     <div class="footer">
-      <div class="status">
-        {% if mensaje %}
-          <span class="msg {{ clase }}">{{ mensaje }}</span>
-        {% else %}
-          Turno del <strong>{{ turno }}</strong>
-        {% endif %}
-      </div>
-      <div><a class="btn secondary" href="{{ url_for('reiniciar') }}">Reiniciar</a></div>
+      <div class="status"><span id="statusText" class="msg {{ clase }}">{{ mensaje or ('Turno del ' + turno) }}</span></div>
+      <div><button id="btnReset" class="btn secondary" type="button">Reiniciar</button></div>
     </div>
   </div>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('statusText');
+    const jhEl = document.getElementById('jhumano');
+    const jbEl = document.getElementById('jbot');
+    const btnReset = document.getElementById('btnReset');
+
+    let prevBoard = Array(9).fill('-');
+
+    async function api(path, opts={}) {
+      const res = await fetch(path, { method: 'GET', headers: { 'Accept': 'application/json' }, ...opts });
+      return res.json();
+    }
+
+    function render(state) {
+      const {tablero, jhumano, jbot, mensaje, clase, turno, fin, linea} = state;
+
+      // jugadores
+      jhEl.textContent = jhumano;
+      jbEl.textContent = jbot;
+
+      // status
+      statusEl.className = 'msg ' + (clase || '');
+      statusEl.textContent = mensaje || `Turno del ${turno}`;
+
+      // tablero
+      boardEl.innerHTML = '';
+      for (let i = 0; i < 9; i++) {
+        const v = tablero[i];
+        const cell = document.createElement(v === '-' && !fin ? 'a' : 'div');
+        cell.className = 'cell';
+        if (linea && linea.includes(i)) cell.classList.add('win');
+
+        if (v !== '-') {
+          cell.textContent = v;
+          // animar si cambió
+          if (prevBoard[i] !== v) cell.classList.add('pop');
+          if (fin) cell.classList.add('disabled');
+        } else if (!fin) {
+          cell.href = '#';
+          cell.dataset.idx = i;
+          cell.addEventListener('click', onCellClick, { once: true });
+        } else {
+          cell.classList.add('disabled');
+        }
+
+        boardEl.appendChild(cell);
+      }
+
+      // confetti si hay ganador
+      if (clase === 'win') launchConfetti();
+      prevBoard = tablero.slice();
+    }
+
+    async function onCellClick(e) {
+      e.preventDefault();
+      const idx = parseInt(e.currentTarget.dataset.idx, 10);
+      const state = await api(`/api/jugar/${idx}`, { method: 'POST' });
+      render(state);
+    }
+
+    btnReset.addEventListener('click', async () => {
+      const state = await api('/api/reiniciar', { method: 'POST' });
+      prevBoard = Array(9).fill('-');
+      render(state);
+    });
+
+    // confetti minimalista sin libs
+    function launchConfetti() {
+      const colors = ['#22c55e','#86efac','#34d399','#10b981','#059669'];
+      for (let i = 0; i < 30; i++) {
+        const s = document.createElement('div');
+        s.className = 'confetti';
+        s.style.left = (Math.random()*100) + 'vw';
+        s.style.background = colors[i % colors.length];
+        s.style.transform = `rotate(${Math.random()*360}deg)`;
+        s.style.animation = `fall ${1.2 + Math.random()*0.8}s linear`;
+        s.style.width = (6 + Math.random()*6) + 'px';
+        s.style.height = (8 + Math.random()*10) + 'px';
+        document.body.appendChild(s);
+        setTimeout(() => s.remove(), 2000);
+      }
+    }
+    // caída
+    const style = document.createElement('style');
+    style.textContent = `@keyframes fall { to { transform: translateY(110vh) rotate(720deg); opacity:.8; } }`;
+    document.head.appendChild(style);
+
+    // estado inicial
+    (async () => render(await api('/api/state')))();
+  </script>
 </body>
 </html>
