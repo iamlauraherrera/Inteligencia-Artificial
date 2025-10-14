@@ -1,214 +1,96 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Tres en Raya – Minimax (Python en el navegador)</title>
-  <meta name="description" content="TicTacToe con Minimax en Python (Pyodide), publicado en GitHub Pages.">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Inteligencia Artificial – Laboratorio</title>
+  <meta name="description" content="Portafolio de algoritmos IA: Minimax, A*, KNN, Markov y Wumpus."/>
   <style>
-    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu; }
-    body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:#0f172a; color:#e5e7eb; margin:0; }
-    .card { background:#111827; padding:24px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.35); width:min(480px,92vw); }
-    h1 { margin:0 0 12px; font-size:1.25rem; color:#fafafa; }
-    .meta { color:#9ca3af; font-size:.92rem; margin-bottom:16px; display:flex; justify-content:space-between; gap:8px; }
-    .board { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
-    .cell { aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; font-size:2rem; border-radius:12px;
-            background:#1f2937; color:#f9fafb; border:1px solid #374151; text-decoration:none; transition:transform .12s ease, background .2s ease; user-select:none; }
-    .cell:hover { transform:translateY(-1px); background:#243041; cursor:pointer; }
-    .disabled { pointer-events:none; opacity:.65; }
-    .win { background:#064e3b !important; border-color:#047857; box-shadow:0 0 18px rgba(34,197,94,.35); }
-    .footer { display:flex; gap:8px; margin-top:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
-    .btn { background:#2563eb; color:#fff; padding:10px 14px; border-radius:10px; text-decoration:none; border:0; cursor:pointer; }
-    .btn.secondary { background:#374151; }
-    .status { color:#cbd5e1; min-height:1.2em; }
-    .msg.win { color:#22c55e; } .msg.draw { color:#f59e0b; } .msg.lose { color:#ef4444; }
-    .small { font-size:.9rem; color:#94a3b8; }
+    :root { --bg:#0f172a; --card:#111827; --muted:#9ca3af; --text:#e5e7eb; --line:#1f2937; --brand:#60a5fa; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter; }
+    header { padding:24px 16px; border-bottom:1px solid var(--line); background:var(--card); }
+    .wrap { max-width:1100px; margin:0 auto; padding:0 16px; }
+    h1 { margin:0 0 6px 0; font-size:1.35rem; letter-spacing:.2px; }
+    p.sub { margin:0; color:var(--muted); }
+    main { padding:24px 0 40px; }
+    .grid { display:grid; grid-template-columns: repeat( auto-fit, minmax(260px,1fr) ); gap:16px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:10px; }
+    .title { font-weight:600; font-size:1.05rem; color:#fafafa; }
+    .desc { color:var(--muted); font-size:.95rem; line-height:1.35; }
+    .btns { margin-top:auto; display:flex; gap:8px; flex-wrap:wrap; }
+    .btn { appearance:none; display:inline-flex; align-items:center; justify-content:center; padding:10px 14px; border-radius:10px; border:1px solid var(--line); color:var(--text); text-decoration:none; font-weight:600; }
+    .btn.primary { background:var(--brand); border-color:var(--brand); color:#0b1220; }
+    .btn.secondary { background:#1f2937; }
+    .note { margin-top:18px; color:var(--muted); font-size:.9rem; }
+    footer { padding:16px; border-top:1px solid var(--line); color:var(--muted); text-align:center; }
+    code { background:#0b101d; border:1px solid var(--line); padding:2px 6px; border-radius:6px; }
   </style>
-  <!-- Pyodide (Python en el navegador) -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
 </head>
 <body>
-  <div class="card">
-    <h1>Tres en Raya – Minimax (Python)</h1>
-    <div class="meta">
-      <div>Tú: <strong id="jhumano">?</strong> | Bot: <strong id="jbot">?</strong></div>
-      <div class="small">Publicación estática (GitHub Pages)</div>
+  <header>
+    <div class="wrap">
+      <h1>Laboratorio de Algoritmos – Inteligencia Artificial</h1>
+      <p class="sub">Visualizaciones interactivas en Flask • Minimax · A* · KNN · Markov · Wumpus</p>
     </div>
+  </header>
 
-    <div id="board" class="board" aria-label="Tablero 3x3"></div>
+  <main class="wrap">
+    <div class="grid">
+      <!-- Minimax -->
+      <article class="card">
+        <div class="title">Tic-Tac-Toe (Minimax)</div>
+        <p class="desc">Juego 3x3 con IA Minimax. Tablero clicable, la IA responde bajo demanda.</p>
+        <div class="btns">
+          <a class="btn primary" href="/algo/minimax-algorithm.py">Abrir</a>
+          <a class="btn secondary" href="https://github.com/iamlauraherrera/Inteligencia-Artificial" target="_blank" rel="noopener">Repositorio</a>
+        </div>
+      </article>
 
-    <div class="footer">
-      <div class="status"><span id="statusText"></span></div>
-      <div style="display:flex; gap:8px;">
-        <button id="btnAlt" class="btn secondary" type="button" title="Alternar quién empieza">Alternar inicio</button>
-        <button id="btnReset" class="btn" type="button">Reiniciar</button>
-      </div>
+      <!-- A* -->
+      <article class="card">
+        <div class="title">Laberinto (A*)</div>
+        <p class="desc">Búsqueda de camino con A*. Dibuja paredes, define origen/meta y avanza frame a frame con costos.</p>
+        <div class="btns">
+          <a class="btn primary" href="/algo/a-algorithm.py">Abrir</a>
+          <a class="btn secondary" href="https://github.com/iamlauraherrera/Inteligencia-Artificial" target="_blank" rel="noopener">Repositorio</a>
+        </div>
+      </article>
+
+      <!-- KNN -->
+      <article class="card">
+        <div class="title">K-NN</div>
+        <p class="desc">Clasificador k-vecinos. Define k y métrica, selecciona un punto y observa la predicción.</p>
+        <div class="btns">
+          <a class="btn primary" href="/algo/knn-algorithm.py">Abrir</a>
+          <a class="btn secondary" href="https://github.com/iamlauraherrera/Inteligencia-Artificial" target="_blank" rel="noopener">Repositorio</a>
+        </div>
+      </article>
+
+      <!-- Markov -->
+      <article class="card">
+        <div class="title">Cadenas de Markov</div>
+        <p class="desc">Define estados y matriz de transición. Simula pasos y visualiza trayectoria y distribución.</p>
+        <div class="btns">
+          <a class="btn primary" href="/algo/markov-algorithm.py">Abrir</a>
+          <a class="btn secondary" href="https://github.com/iamlauraherrera/Inteligencia-Artificial" target="_blank" rel="noopener">Repositorio</a>
+        </div>
+      </article>
+
+      <!-- Wumpus -->
+      <article class="card">
+        <div class="title">Wumpus</div>
+        <p class="desc">Mundo Wumpus en grilla. Avanza por pasos o automático y observa percepciones.</p>
+        <div class="btns">
+          <a class="btn primary" href="/algo/wumpus-algorithm.py">Abrir</a>
+          <a class="btn secondary" href="https://github.com/iamlauraherrera/Inteligencia-Artificial" target="_blank" rel="noopener">Repositorio</a>
+        </div>
+      </article>
     </div>
-  </div>
+  </main>
 
-<script>
-const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-let pyodide = null;
-
-// Estado UI
-let board = Array(9).fill('-');
-let human = localStorage.getItem('ttt_human') || 'X';     // alternancia persistente
-let bot   = human === 'X' ? 'O' : 'X';
-let statusEl = document.getElementById('statusText');
-let jhEl = document.getElementById('jhumano');
-let jbEl = document.getElementById('jbot');
-const boardEl = document.getElementById('board');
-
-function updateMeta() {
-  jhEl.textContent = human; jbEl.textContent = bot;
-}
-function winline(b) {
-  for (const [a,b2,c] of LINES) { if (b[a] !== '-' && b[a]===b[b2] && b[a]===b[c]) return {line:[a,b2,c], win:b[a]}; }
-  return {line:[], win:null};
-}
-function full(b) { return !b.includes('-'); }
-function render() {
-  boardEl.innerHTML = '';
-  const {line, win} = winline(board);
-  for (let i=0;i<9;i++) {
-    const v = board[i];
-    const cell = document.createElement('div');
-    cell.className = 'cell';
-    if (line.includes(i)) cell.classList.add('win');
-    cell.textContent = v === '-' ? '' : v;
-    if (v === '-' && !win && !full(board)) {
-      cell.onclick = () => humanMove(i);
-    } else {
-      cell.classList.add('disabled');
-    }
-    boardEl.appendChild(cell);
-  }
-  if (win) statusEl.innerHTML = `<span class="msg ${win===human?'win':'lose'}">Gana ${win}</span>`;
-  else if (full(board)) statusEl.innerHTML = `<span class="msg draw">¡Empate!</span>`;
-  else statusEl.textContent = `Turno de ${turnOf()}`;
-}
-function turnOf() {
-  const x = board.filter(c=>c==='X').length;
-  const o = board.filter(c=>c==='O').length;
-  return x===o ? 'X' : 'O';
-}
-
-async function ensurePy() {
-  if (!pyodide) {
-    pyodide = await loadPyodide();
-    await pyodide.runPythonAsync(document.getElementById('pycode').textContent);
-  }
-}
-
-async function humanMove(i) {
-  if (board[i] !== '-' || winline(board).win || full(board)) return;
-  if (turnOf() !== human) return; // evita clicks fuera de turno
-  board[i] = human; render();
-  if (winline(board).win || full(board)) return;
-  await botMove();  // IA
-}
-
-async function botMove() {
-  await ensurePy();
-  // Llamamos a la función Python choose_move(board, bot, human)
-  const move = await pyodide.runPythonAsync(`
-from js import board_js, bot_js, human_js
-choose_move(board_js.to_py(), bot_js, human_js)
-  `, { globals: pyodide.toPy({}) });
-}
-
-document.getElementById('btnReset').onclick = async () => {
-  board = Array(9).fill('-'); render();
-  // Si empieza Bot (humano = 'O'), que haga su primer movimiento:
-  if (human === 'O') {
-    await ensurePy();
-    await pyodide.runPythonAsync(`
-from js import board_js, bot_js, human_js
-choose_move(board_js.to_py(), bot_js, human_js)
-    `);
-  }
-};
-document.getElementById('btnAlt').onclick = () => {
-  // Alternar quién empieza y persistir
-  human = (human === 'X') ? 'O' : 'X';
-  bot = (human === 'X') ? 'O' : 'X';
-  localStorage.setItem('ttt_human', human);
-  updateMeta();
-  board = Array(9).fill('-');
-  render();
-  // Si ahora empieza el bot:
-  if (human === 'O') {
-    ensurePy().then(()=>pyodide.runPythonAsync(`
-from js import board_js, bot_js, human_js
-choose_move(board_js.to_py(), bot_js, human_js)
-    `));
-  }
-};
-
-// Variables compartidas JS→Python
-Object.defineProperty(window, "board_js", { get(){ return board; }});
-Object.defineProperty(window, "human_js", { get(){ return human; }});
-Object.defineProperty(window, "bot_js",   { get(){ return bot; }});
-
-// Inicializar
-updateMeta(); render();
-if (human === 'O') { ensurePy().then(()=>pyodide.runPythonAsync(`
-from js import board_js, bot_js, human_js
-choose_move(board_js.to_py(), bot_js, human_js)
-`)); }
-</script>
-
-<!-- Código Python ejecutado en el navegador con Pyodide -->
-<script id="pycode" type="text/plain">
-# --- Minimax en Python para TicTacToe (versión web, sin input/print) ---
-import math
-from js import board_js, bot_js, human_js
-
-LINES = [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
-
-def winner(b):
-    for a,b2,c in LINES:
-        if b[a] != '-' and b[a]==b[b2]==b[c]:
-            return b[a]
-    return None
-
-def actions(b):
-    return [i for i,v in enumerate(b) if v=='-']
-
-def terminal(b):
-    return winner(b) is not None or '-' not in b
-
-def minimax(b, player, max_player):
-    other = 'O' if player=='X' else 'X'
-    win = winner(b)
-    if win is not None:
-        # victoria del que jugó antes
-        return {'pos': None, 'score': (1 if win==max_player else -1) * (len(actions(b))+1)}
-    if '-' not in b:
-        return {'pos': None, 'score': 0}
-
-    best = {'pos': None, 'score': -math.inf if player==max_player else math.inf}
-    for mv in actions(b):
-        nb = b.copy(); nb[mv] = player
-        sc = minimax(nb, other, max_player)
-        sc = {'pos': mv, 'score': sc['score']}
-        if player==max_player:
-            if sc['score'] > best['score']: best = sc
-        else:
-            if sc['score'] < best['score']: best = sc
-    return best
-
-def choose_move(board, bot, human):
-    # mueve bot solo si es su turno
-    x = sum(1 for c in board if c=='X'); o = sum(1 for c in board if c=='O')
-    turn = 'X' if x==o else 'O'
-    if turn != bot: 
-        return None
-    best = minimax(board, bot, max_player=bot)
-    pos = best['pos']
-    if pos is not None and board[pos]=='-':
-        board[pos] = bot
-    return pos
-</script>
+  <footer>
+    © 2025 Laura Herrera — Laboratorio de Inteligencia Artificial
+  </footer>
 </body>
 </html>

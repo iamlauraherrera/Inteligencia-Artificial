@@ -4,13 +4,13 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║ Autor:           Laura Herrera                                               ║
 ║ Fecha de entrega: 14/10/2023                                                 ║
-║ Proyecto:        (Tic Tac Toe) con interfaz gráfica (Tkinter) desarrollada   ║
-║                  en Python.                                                  ║
+║ Proyecto:        (Tic Tac Toe)  desarrollada en Python.                      ║
 ║ Descripción:     Implementación simple, clara y documentada del juego        ║
 ║                  Triqui (Tic-Tac-Toe) con ventana gráfica, botones y         ║
 ║                  reinicio.                                                   ║
 ║ Librerias:      Solo estándar (random, math, os). No se usan librerías       ║
 ║                  externas.                                                   ║
+║ Nota: La ejecucion de la parte logica solo muestra en consola.               ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 import os
