@@ -12,7 +12,7 @@ app.secret_key = secrets.token_hex(16)
 ALGO_FILES = [
     "algos/minimax-algorithm.py",
     "algos/a-algorithm.py",   
-    # "algos/knn-algorithm.py",
+    "algos/knn-algorithm.py",
     # "algos/markov-algorithm.py",
     # "algos/wumpus-algorithm.py",
 ]
@@ -330,6 +330,74 @@ def _astar_compute_frames(n, cells, origen, meta):
                     open_set.add(v)
 
     return {"frames": frames, "camino": []}
+# ---------------- Adaptador Wumpus (probabilístico) ----------------
+from typing import Any
+
+def _wumpus_init(mod):
+    Mundo = getattr(mod, "MundoWumpusProb")
+    mundo = Mundo(n=6, p_pozos=0.15, semilla=None)
+    snap = mundo.snapshot("Inicio.")
+    return {
+        "mundo": mundo,
+        "hist": [snap],   # historial de snapshots para prev/next
+        "idx": 0
+    }
+
+def _wumpus_view(state):
+    # devuelve el snapshot visible según idx
+    if not state["hist"]:
+        return {}
+    return state["hist"][state["idx"]]
+
+def _wumpus_step(state, action: str, mod):
+    mundo = state["mundo"]
+    def push(snap):
+        # si estamos en medio del timeline y avanzamos, truncar lo que sigue
+        if state["idx"] < len(state["hist"])-1:
+            state["hist"] = state["hist"][:state["idx"]+1]
+        state["hist"].append(snap)
+        state["idx"] = len(state["hist"])-1
+
+    if action == "clear":
+        mundo.reiniciar(n=6, p=0.15, semilla=None)
+        state["hist"] = [mundo.snapshot("Inicio.")]
+        state["idx"] = 0
+        return state
+
+    if action.startswith("random:"):
+        # random:<p> donde p ∈ [0, 0.35]
+        p = float(action.split(":")[1])
+        p = max(0.0, min(0.35, p))
+        mundo.reiniciar(n=6, p=p, semilla=None)
+        state["hist"] = [mundo.snapshot(f"Nuevo mundo (pozos={int(p*100)}%).")]
+        state["idx"] = 0
+        return state
+
+    if action == "step":
+        snap = mundo.paso()
+        push(snap)
+        return state
+
+    if action == "run":
+        # avanza hasta terminar o tope de pasos para no colgar
+        for _ in range(200):
+            snap = mundo.paso()
+            push(snap)
+            if snap.get("gano") or not snap.get("vivo", 1):
+                break
+        return state
+
+    if action == "prev":
+        if state["idx"] > 0:
+            state["idx"] -= 1
+        return state
+
+    if action == "next":
+        if state["idx"] < len(state["hist"])-1:
+            state["idx"] += 1
+        return state
+
+    return state
 
 
 # ----------------------------------------------------- Inicialización por archivo ------------------------------------------------
@@ -341,19 +409,22 @@ def init_for(algo_name: str):
         return ("ttt", mod, _ttt_init(mod), "TicTacToe (Minimax)")
     if name == "a-algorithm.py":
         return ("astar", mod, _astar_init(mod), "Laberinto A* (web)")
-    # Placeholder para los demás: solo renderiza la plantilla si existe
+    if name == "wumpus-algorithm.py":
+        return ("wumpus", mod, _wumpus_init(mod), "Wumpus (probabilístico)")
     return ("static", mod, {}, f"{name}")
 
 def view_for(algo_name: str, mod, state):
     name = Path(algo_name).name
     if name == "minimax-algorithm.py": return _ttt_view(state)
     if name == "a-algorithm.py": return _astar_view(state)
+    if name == "wumpus-algorithm.py": return _wumpus_view(state)
     return {}
 
 def step_for(algo_name: str, mod, state, action):
     name = Path(algo_name).name
     if name == "minimax-algorithm.py": return _ttt_step(state, action)
     if name == "a-algorithm.py": return _astar_step(state, action, mod)
+    if name == "wumpus-algorithm.py": return _wumpus_step(state, action, mod)
     return state
 
 # ---------------- Portada desde docs/ ----------------

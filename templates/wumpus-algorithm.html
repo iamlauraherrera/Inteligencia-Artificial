@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Wumpus Probabilístico — Simulación</title>
+<style>
+:root { font-family: system-ui, -apple-system, Segoe UI, Roboto; }
+body { margin:0; background:#0f172a; color:#e5e7eb; }
+header{ padding:12px 16px; background:#111827; border-bottom:1px solid #1f2937; }
+h1{ margin:0; font-size:1.05rem; color:#fafafa; }
+.wrap{ max-width:1100px; margin:16px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 360px; gap:14px; }
+.card{ background:#111827; border:1px solid #1f2937; border-radius:12px; padding:12px; }
+.title{ font-weight:600; margin-bottom:6px; color:#fafafa; }
+.grid{ display:grid; gap:2px; background:#0b101d; padding:6px; border-radius:10px; user-select:none; }
+.cell{ position:relative; aspect-ratio:1/1; border-radius:6px; background:#1f2937; display:flex; align-items:center; justify-content:center; }
+.cell .txt{ position:absolute; bottom:4px; right:4px; font-size:.7rem; color:#cbd5e1; opacity:.9; }
+.row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.btn{ background:#2563eb; border:1px solid #2563eb; color:#e5e7eb; border-radius:10px; padding:8px 12px; }
+.btn.s{ background:#374151; border-color:#374151; }
+.small{ color:#9ca3af; font-size:.9rem; }
+.stat{ font-family: ui-monospace, Menlo, monospace; font-size:.95rem; color:#cbd5e1; }
+.badge{ display:inline-flex; align-items:center; gap:6px; border:1px solid #374151; background:#1f2937; padding:2px 8px; border-radius:999px; font-size:.86rem; margin-right:6px; }
+.dot{ width:12px; height:12px; border-radius:3px; display:inline-block; }
+.agent{ background:#10b981 !important; }     /* verde */
+.front{ outline: 2px dashed #93c5fd; }
+.safe{ box-shadow: inset 0 0 0 2px #047857; } /* borde verde oscuro */
+.vis{ background:#243041; }
+.gold{ box-shadow: inset 0 0 0 2px #fbbf24; } /* amarillo */
+
+/* Indicadores de sensores en la celda actual */
+.stench:after { content:"S"; position:absolute; top:4px; left:4px; font-size:.75rem; color:#ef4444; }
+.breeze:after { content:"B"; position:absolute; top:4px; left:16px; font-size:.75rem; color:#22c55e; }
+.dead{ color:#ef4444; }
+</style>
+</head>
+<body>
+<header><h1>Wumpus Probabilístico — Simulación</h1></header>
+
+<div class="wrap">
+  <div class="card">
+    <div class="title">Cueva</div>
+    <div id="board" class="grid"></div>
+    <div class="small" style="margin-top:8px">
+      <span class="badge"><span class="dot" style="background:#10b981"></span>Agente</span>
+      <span class="badge"><span class="dot" style="background:#243041"></span>Visitado</span>
+      <span class="badge"><span class="dot" style="background:#1f2937"></span>No visitado</span>
+      <span class="badge"><span class="dot" style="background:#047857"></span>Seguro</span>
+      <span class="badge"><span class="dot" style="background:#fbbf24"></span>Oro (oculto)</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="title">Controles</div>
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn" id="run">Auto</button>
+      <button class="btn s" id="step">Paso</button>
+      <button class="btn s" id="prev">◀</button>
+      <button class="btn s" id="next">▶</button>
+      <button class="btn s" id="clear">Reiniciar</button>
+      <a class="btn s" href="/">Volver</a>
+    </div>
+
+    <div class="row" style="margin-bottom:8px">
+      <label class="small">Densidad pozos:
+        <input id="dens" type="range" min="0" max="35" value="15" />
+        <span id="densv" class="small">15%</span>
+      </label>
+      <button class="btn s" id="rnd">Nuevo mundo</button>
+    </div>
+
+    <div id="msg" class="small" style="margin-bottom:6px;"></div>
+
+    <div class="title" style="margin-top:6px">Sensores</div>
+    <div id="sensors" class="stat"></div>
+
+    <div class="title" style="margin-top:6px">Estado</div>
+    <div id="info" class="stat"></div>
+  </div>
+</div>
+
+<script>
+const name="wumpus-algorithm.py";
+const board=document.getElementById('board');
+const info=document.getElementById('info');
+const sensors=document.getElementById('sensors');
+const msg=document.getElementById('msg');
+const dens=document.getElementById('dens'), densv=document.getElementById('densv');
+
+let autoTimer=null;
+
+dens.oninput=()=>{ densv.textContent = dens.value+"%"; };
+
+async function j(u,o={}){const r=await fetch(u,o);return r.json();}
+async function getS(){return j(`/api/${name}/state`);}
+async function act(a){return j(`/api/${name}/act`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a})});}
+
+function paint(st){
+  const n = st.n || 6;
+  board.innerHTML=''; board.style.gridTemplateColumns=`repeat(${n},1fr)`;
+
+  // conjuntos para lookup
+  const V = new Set(st.visitados||[]);
+  const S = new Set(st.seguros||[]);
+  const A = st.agente;
+  const oro = st.oro;           // NO lo mostramos explícito (solo tras ganar)
+  const pPit = st.p_pit || [];
+  const pW = st.p_wumpus || [];
+
+  for(let i=0;i<n*n;i++){
+    const d=document.createElement('div');
+    d.className='cell';
+    if(V.has(i)) d.classList.add('vis');
+    if(S.has(i)) d.classList.add('safe');
+    if(i===A) {
+      d.classList.add('agent');
+      // Indicadores en la celda actual:
+      if (st.breeze) d.classList.add('breeze');  // "B"
+      if (st.stench) d.classList.add('stench');  // "S"
+    }
+    if(i===oro && st.gano) d.classList.add('gold'); // borde al ganar
+
+    // overlay de riesgo: p_pit + p_wumpus (si wumpus vivo)
+    const pp = pPit[i] || 0, pw = pW[i] || 0;
+    const risk = (pp + (st.wumpus_vivo?pw:0)).toFixed(2);
+    const t=document.createElement('div');
+    t.className='txt'; t.textContent=risk;
+    d.appendChild(t);
+
+    board.appendChild(d);
+  }
+
+  // sensores actuales (texto)
+  const arr=[];
+  if(st.breeze) arr.push("Brisa");
+  if(st.stench) arr.push("Hedor");
+  if(st.glitter) arr.push("Brillo (oro)");
+  sensors.textContent = "Sensores: " + (arr.length? arr.join(", ") : "—");
+
+  msg.textContent = st.msg || '';
+  info.textContent = `Pasos=${st.pasos||0} • Vivo=${st.vivo? "Sí":"No"} • Oro=${st.tiene_oro? "Sí":"No"} • Wumpus=${st.wumpus_vivo? "Vivo":"Muerto"} • ${st.gano? "¡GANÓ!":""}`;
+}
+
+async function update(){ const {estado}=await getS(); paint(estado||{}); }
+
+document.getElementById('run').onclick = ()=>{
+  if(autoTimer){ clearInterval(autoTimer); autoTimer=null; return; }
+  autoTimer=setInterval(()=> act('step').then(update), 250);
+};
+document.getElementById('step').onclick = ()=> act('step').then(update);
+document.getElementById('prev').onclick = ()=> act('prev').then(update);
+document.getElementById('next').onclick = ()=> act('next').then(update);
+document.getElementById('clear').onclick= ()=> act('clear').then(update);
+
+document.getElementById('rnd').onclick = async ()=>{
+  const p = Math.max(0, Math.min(0.35, parseInt(dens.value,10)/100));
+  await act(`random:${p}`);
+  update();
+};
+
+update();
+</script>
+</body>
+</html>
