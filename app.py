@@ -99,7 +99,18 @@ def _ttt_view(state):
         for a,b,c in lines:
             if board[a]==board[b]==board[c]==w:
                 winline=[a,b,c]; break
-    return {"board": board, "winline": winline, "msg": msg}
+
+    # >>> NUEVO: exponer letras para HUD y auto-IA
+    humano = _pick_attr(g, "jugadorHumano","humanPLayer","humanPlayer")
+    ia     = _pick_attr(g, "jugadorBot","botPlayer")
+
+    return {
+        "board": board,
+        "winline": winline,
+        "msg": msg,
+        "humano": humano,
+        "ia": ia
+    }
 
 def _ttt_step(state, action: str):
     g = state["g"]; bot = state["bot"]

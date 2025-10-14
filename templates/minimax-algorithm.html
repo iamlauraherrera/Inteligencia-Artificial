@@ -2,77 +2,193 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TicTacToe – Minimax</title>
+<title>Tic-Tac-Toe (Minimax) — Flask</title>
 <style>
 :root { font-family: system-ui, -apple-system, Segoe UI, Roboto; }
 body { margin:0; background:#0f172a; color:#e5e7eb; }
 header { display:flex; align-items:center; padding:12px 16px; background:#111827; border-bottom:1px solid #1f2937; }
 h1 { margin:0; font-size:1.05rem; color:#fafafa; }
-.container { max-width:820px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 320px; gap:16px; }
+.container { max-width:1100px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 380px; gap:16px; }
 .card{ background:#111827; border:1px solid #1f2937; border-radius:14px; padding:16px; }
 .title{ font-weight:600; color:#fafafa; margin-bottom:8px; }
 #board.grid{ display:grid; gap:6px; padding:8px; border-radius:12px; background:#0b101d; }
-.cell{ display:flex; align-items:center; justify-content:center; background:#1f2937; border-radius:8px; aspect-ratio:1/1; font-size:2.2rem; font-weight:700; transition:transform .12s ease, background .2s ease; }
+.cell{ display:flex; align-items:center; justify-content:center; background:#1f2937; border-radius:10px; aspect-ratio:1/1; font-size:2.2rem; font-weight:800; letter-spacing:.5px;
+       transition:transform .12s ease, background .2s ease; }
 .cell:hover{ transform:translateY(-1px); background:#243041; cursor:pointer; }
 .cell.win{ background:#064e3b !important; box-shadow:0 0 18px rgba(34,197,94,.35); }
-.btn{ background:#2563eb; color:#e5e7eb; border:1px solid #2563eb; border-radius:10px; padding:10px 14px; margin-right:8px; }
-.btn.secondary{ background:#374151; border-color:#374151; }
+.controls .btn{ background:#2563eb; color:#e5e7eb; border:1px solid #2563eb; border-radius:10px; padding:10px 14px; margin-right:8px; }
+.controls .btn.secondary{ background:#374151; border-color:#374151; }
 .status{ min-height:1.1em; color:#cbd5e1; }
+.meta { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0b101d; border:1px solid #1f2937; border-radius:10px; padding:12px; white-space:pre-wrap; }
+.small { color:#cbd5e1; font-size:.92rem; }
+hr.sep { border:0; border-top:1px solid #1f2937; margin:12px 0; }
+.badge{ display:inline-block; padding:2px 8px; border-radius:999px; background:#1f2937; border:1px solid #374151; margin-right:6px; font-size:.8rem; color:#cbd5e1; }
+.kv { display:grid; grid-template-columns: 120px 1fr; gap:6px 10px; }
+.kv div{ padding:4px 0; border-bottom:1px dashed #1f2937; color:#cbd5e1; }
+.kv div.key{ color:#9ca3af; }
+a.btnlink{ text-decoration:none; }
+.dim { opacity:.5; pointer-events:none; }
+.hud { margin-top:8px; color:#cbd5e1; font-size:.95rem; }
+.hud .tag { display:inline-block; padding:2px 8px; border-radius:8px; background:#1f2937; border:1px solid #374151; margin-right:6px; }
 </style>
 </head>
 <body>
-<header><h1>TicTacToe – Minimax</h1></header>
+<header>
+  <h1>Tic-Tac-Toe — Algoritmo Minimax (Flask)</h1>
+</header>
 
 <div class="container">
+  <!-- Izquierda: tablero -->
   <div class="card">
     <div class="title">Tablero</div>
     <div id="board" class="grid"></div>
-  </div>
-  <div class="card">
-    <div class="title">Controles</div>
-    <div>
-      <button class="btn" id="ai">Jugar IA</button>
+
+    <div class="controls" style="margin-top:10px;">
       <button class="btn secondary" id="reset">Reiniciar</button>
-      <a href="/" class="btn secondary">Volver</a>
+      <a class="btn secondary btnlink" href="/">Volver</a>
     </div>
-    <div class="title" style="margin-top:10px;">Estado</div>
+
+    <div class="title" style="margin-top:12px;">Estado</div>
     <div id="status" class="status"></div>
+
+    <div id="hud" class="hud"></div>
+  </div>
+
+  <!-- Derecha: documentación -->
+  <div class="card">
+    <div class="title">Documentación</div>
+    <div class="meta small">
+
+      ALGORITMO MINIMAX (Python)                          
+      Fecha de entrega: 14/10/2023                                        
+      Proyecto:        (Tic Tac Toe) con interfaz web Flask                  
+      Descripción:     Implementación simple y documentada del juego Triqui       
+                       (Tic-Tac-Toe) con Minimax.                                  
+      Librerías:       Estándar (random, math, os).                                
+
+    </div>
+
+    <hr class="sep"/>
+
+    <div class="title">Resumen</div>
+    <div class="kv small">
+      <div class="key">Símbolos</div><div><span class="badge">X</span><span class="badge">O</span> <span class="badge">- (vacío)</span></div>
+      <div class="key">Turno</div><div>Humano hace clic en una casilla libre. La IA responde automáticamente.</div>
+      <div class="key">Fin</div><div>Gana X/O (3 en línea) o Empate (tablero lleno).</div>
+      <div class="key">IA</div><div>Minimax con premio por ganar antes (profundidad restante).</div>
+    </div>
   </div>
 </div>
 
 <script>
-const name = "{{ name }}"; // "minimax-algorithm.py"
-const board = document.getElementById('board');
+const name = "minimax-algorithm.py"; // debe coincidir con el .py backend
+const boardEl = document.getElementById('board');
 const statusBox = document.getElementById('status');
+const hud = document.getElementById('hud');
+
+let bloqueado = false;     // evita clicks durante turno IA o al finalizar
+let autoIniciado = false;  // evita bucles al arrancar si empieza la IA
+let letraHumano = null;
+let letraIA = null;
 
 async function j(url, opts={}){ const r = await fetch(url, opts); return r.json(); }
 async function getState(){ return j(`/api/${name}/state`); }
 async function act(action){
-  return j(`/api/${name}/act`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action})});
+  return j(`/api/${name}/act`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({action})
+  });
 }
 async function restart(){ return j(`/api/${name}/restart`, {method:'POST'}); }
 
-function render(state){
+function terminado(msg){ return !!msg && (msg.startsWith("Gana") || msg.startsWith("Empate")); }
+function turnoDe(msg){ if (!msg || !msg.startsWith("Turno")) return null; const ch = msg.slice(-1); return (ch==='X'||ch==='O')?ch:null; }
+
+function renderHUD(){
+  const h = letraHumano ?? '—';
+  const a = letraIA ?? '—';
+  hud.innerHTML = `
+    <span class="tag">Humano: <strong>${h}</strong></span>
+    <span class="tag">IA: <strong>${a}</strong></span>
+  `;
+}
+
+function paint(state){
   const cells = state.board || Array(9).fill('-');
   const winline = state.winline || [];
-  board.innerHTML = '';
-  board.style.gridTemplateColumns = 'repeat(3, 1fr)';
+  const msg = state.msg || '';
+
+  boardEl.innerHTML = '';
+  boardEl.style.gridTemplateColumns = 'repeat(3, 1fr)';
+  bloqueado = terminado(msg);
+
   for (let i=0;i<9;i++){
     const v = cells[i];
     const c = document.createElement('div');
     c.className = 'cell';
     if (winline.includes(i)) c.classList.add('win');
     c.textContent = v === '-' ? '' : v;
-    if (v === '-') c.onclick = ()=> act(`move:${i}`).then(update);
-    else c.style.opacity = .7;
-    board.appendChild(c);
+
+    if (!bloqueado && v === '-') {
+      c.onclick = async ()=>{
+        if (bloqueado) return;
+        // 1) Humano mueve
+        bloqueado = true; boardEl.classList.add('dim');
+        await act(`move:${i}`);
+        let s1 = await getState(); let st1 = s1.estado || {};
+        if (st1.humano && st1.ia){ letraHumano = st1.humano; letraIA = st1.ia; renderHUD(); }
+        // 2) IA si no terminó
+        if (!terminado(st1.msg)) await act('ai');
+        // 3) Refrescar
+        const s2 = await getState();
+        paint(s2.estado || {});
+        boardEl.classList.remove('dim');
+      };
+    } else {
+      c.style.opacity = .7;
+    }
+    boardEl.appendChild(c);
   }
-  statusBox.textContent = state.msg || '';
+  statusBox.textContent = msg;
+  if (bloqueado) boardEl.classList.add('dim'); else boardEl.classList.remove('dim');
 }
 
-async function update(){ const jn = await getState(); render(jn.estado); }
-document.getElementById('ai').onclick = ()=> act('ai').then(update);
-document.getElementById('reset').onclick = ()=> restart().then(update);
+async function update(){
+  const jn = await getState();
+  const st = jn.estado || {};
+  if (st.humano && st.ia){ letraHumano = st.humano; letraIA = st.ia; }
+  renderHUD();
+  paint(st);
+
+  // Si inicia la IA, jugar automáticamente una vez
+  const t = turnoDe(st.msg);
+  if (!autoIniciado && t && letraIA && t === letraIA && !terminado(st.msg)) {
+    autoIniciado = true;
+    bloqueado = true; boardEl.classList.add('dim');
+    await act('ai');
+    const s2 = await getState();
+    paint(s2.estado || {});
+    boardEl.classList.remove('dim');
+  }
+}
+
+document.getElementById('reset').onclick = async ()=>{
+  bloqueado = true; boardEl.classList.add('dim'); autoIniciado = false;
+  await restart();
+  const s = await getState(); const st = s.estado || {};
+  if (st.humano && st.ia){ letraHumano = st.humano; letraIA = st.ia; }
+  renderHUD(); paint(st);
+
+  const t = turnoDe(st.msg);
+  if (!autoIniciado && t && letraIA && t === letraIA && !terminado(st.msg)) {
+    autoIniciado = true;
+    await act('ai');
+    const s2 = await getState();
+    paint(s2.estado || {});
+  }
+  boardEl.classList.remove('dim');
+};
+
 update();
 </script>
 </body>
