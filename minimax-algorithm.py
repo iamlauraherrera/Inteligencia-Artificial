@@ -1,202 +1,278 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                      ALGORITMO MINIMAX (Python)                     ║
+║                      ALGORITMO MINIMAX (Python)                              ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║ Autor:           Laura Herrera                                               ║
-║ Proyecto:        Ta-Te-Ti (Tic Tac Toe) con interfaz gráfica (Tkinter)       ║
-║ Descripción:     Implementación simple, clara y documentada de un juego      ║
-║                  de Ta-Te-Ti con ventana gráfica, botones y reinicio.        ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║ CUADRO DE FUNCIONES                                                          ║
-║ ───────────────────────────────────────────────────────────────────────────  ║
-║ 1) crear_ventana()                                                           ║
-║    Qué hace: Inicializa la ventana principal, crea el tablero de botones     ║
-║              y configura el estado inicial del juego.                        ║
-║    Parámetros: Ninguno                                                       ║
-║    Retorna:    Ninguno                                                       ║
-║                                                                              ║
-║ 2) manejar_click(fila: int, columna: int)                                    ║
-║    Qué hace: Gestiona el clic en una celda; coloca la marca del jugador      ║
-║              actual si la celda está vacía, comprueba victoria o empate      ║
-║              y alterna el turno.                                             ║
-║    Parámetros: fila (int) → Fila de la celda presionada                      ║
-║                columna (int) → Columna de la celda presionada                ║
-║    Retorna:    Ninguno                                                       ║
-║                                                                              ║
-║ 3) verificar_ganador() -> bool                                               ║
-║    Qué hace: Revisa filas, columnas y diagonales para detectar si el         ║
-║              jugador actual ganó.                                            ║
-║    Parámetros: Ninguno (usa variables de estado globales)                    ║
-║    Retorna:    True si hay ganador, False en caso contrario                  ║
-║                                                                              ║
-║ 4) tablero_lleno() -> bool                                                   ║
-║    Qué hace: Verifica si todas las celdas están ocupadas (empate).           ║
-║    Parámetros: Ninguno                                                       ║
-║    Retorna:    True si no hay celdas vacías, False en caso contrario         ║
-║                                                                              ║
-║ 5) reiniciar_juego()                                                         ║
-║    Qué hace: Limpia el tablero, reinicia etiquetas y estado para comenzar    ║
-║              una nueva partida.                                              ║
-║    Parámetros: Ninguno                                                       ║
-║    Retorna:    Ninguno                                                       ║
+║ Fecha de entrega: 14/10/2023                                                 ║
+║ Proyecto:        (Tic Tac Toe) con interfaz gráfica (Tkinter) desarrollada   ║
+║                  en Python.                                                  ║
+║ Descripción:     Implementación simple, clara y documentada del juego        ║
+║                  Triqui (Tic-Tac-Toe) con ventana gráfica, botones y         ║
+║                  reinicio.                                                   ║
+║ Librerias:      Solo estándar (random, math, os). No se usan librerías       ║
+║                  externas.                                                   ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
+import os
+import random
+import math
 
-from __future__ import annotations
-from tkinter import Tk, Button, Label, Frame, messagebox
-from typing import List, Optional
+"""     Módulo principal: clase TicTacToe y lógica del juego.
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ 1) class TicTacToe()                                                         ║
+║ ──────────────────────────────────────────────────────────────────────────── ║
+║  Atributos:                                                                  ║
+║      (list[str]): Lista de 9 posiciones representando el 3x3                 ║
+║       values: 'X', 'O' o '-'.                                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+class TicTacToe:
 
-# ============================
-# Variables de estado globales
-# ============================
-ventana: Optional[Tk] = None
-tablero: List[List[str]] = [["" for _ in range(3)] for _ in range(3)]
-botones: List[List[Button]] = []
-jugador_actual: str = "X"  # "X" inicia por defecto
-
-
-def crear_ventana() -> None:
+    def __init__(self):
+        """Inicializa tablero y asigna X/O aleatoriamente."""
+        self.tablero = ['-' for _ in range(9)]
+        if random.randint(0, 1) == 1:
+            self.jugadorHumano = 'X'
+            self.jugadorBot = 'O'
+        else:
+            self.jugadorHumano = 'O'
+            self.jugadorBot = 'X'
     """
-    Autor: Laura Herrera
-    Inicializa la interfaz gráfica del juego Ta-Te-Ti.
-    - Crea la ventana principal.
-    - Construye una cuadrícula 3x3 de botones para el tablero.
-    - Añade etiqueta de estado y botón de reinicio.
-    - Establece el jugador inicial.
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   mostrar_tablero(): Imprime el tablero 3x3.                                 ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+    """ 
+    def mostrar_tablero(self):
+        """Imprime el tablero 3x3."""
+        print("")
+        for i in range(3):
+            print(" ", self.tablero[0 + (i * 3)], " | ", self.tablero[1 + (i * 3)], " | ", self.tablero[2 + (i * 3)])
+        print("")
     """
-    global ventana, botones, jugador_actual
-
-    ventana = Tk()
-    ventana.title("Ta-Te-Ti — Autor: Laura Herrera")
-    ventana.resizable(False, False)
-
-    # Marco principal para el tablero
-    marco_tablero = Frame(ventana, padx=10, pady=10)
-    marco_tablero.grid(row=0, column=0, columnspan=3)
-
-    # Crear los 9 botones (3x3)
-    botones = []
-    for i in range(3):
-        fila_botones = []
-        for j in range(3):
-            btn = Button(
-                marco_tablero,
-                text="",
-                width=6,
-                height=3,
-                font=("Helvetica", 24, "bold"),
-                command=lambda f=i, c=j: manejar_click(f, c),
-            )
-            btn.grid(row=i, column=j, padx=5, pady=5, sticky="nsew")
-            fila_botones.append(btn)
-        botones.append(fila_botones)
-
-    # Etiqueta de estado del turno
-    etiqueta_turno = Label(ventana, text=f"Turno de: {jugador_actual}", font=("Helvetica", 12))
-    etiqueta_turno.grid(row=1, column=0, padx=10, pady=(0, 10))
-
-    # Botón de reinicio
-    boton_reinicio = Button(ventana, text="Reiniciar", font=("Helvetica", 12), command=reiniciar_juego)
-    boton_reinicio.grid(row=1, column=2, padx=10, pady=(0, 10))
-
-    # Guardar referencia a la etiqueta en la ventana
-    ventana.etiqueta_turno = etiqueta_turno  # type: ignore[attr-defined]
-
-    ventana.mainloop()
-
-
-def manejar_click(fila: int, columna: int) -> None:
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   tablero_lleno(estado): Verifica si el tablero está lleno.                  ║
+    ║       retorna: bool. True si no hay '-' en el estado.                        ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
     """
-    Autor: Laura Herrera
-    Gestiona el clic del usuario en el tablero.
-    Coloca la marca del jugador actual si la celda está vacía y comprueba
-    si hay ganador o empate; si no, alterna el turno.
+    def tablero_lleno(self, estado):
+        """True si no hay '-'."""
+        return "-" not in estado
     """
-    global jugador_actual
-
-    if tablero[fila][columna] != "":
-        return  # Celda ocupada: ignorar
-
-    # Actualizar modelo (tablero) y vista (botón)
-    tablero[fila][columna] = jugador_actual
-    botones[fila][columna].config(text=jugador_actual)
-
-    # Verificar estado del juego
-    if verificar_ganador():
-        messagebox.showinfo("Fin de la partida", f"¡Jugador {jugador_actual} ha ganado!")
-        reiniciar_juego()
-        return
-
-    if tablero_lleno():
-        messagebox.showinfo("Empate", "No hay más movimientos disponibles. ¡Empate!")
-        reiniciar_juego()
-        return
-
-    # Cambiar turno
-    jugador_actual = "O" if jugador_actual == "X" else "X"
-    # Actualizar etiqueta de turno
-    assert ventana is not None
-    ventana.etiqueta_turno.config(text=f"Turno de: {jugador_actual}")  # type: ignore[attr-defined]
-
-
-def verificar_ganador() -> bool:
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   jugador_gana(estado,jugador): Verifica si un jugador ha ganado.            ║
+    ║       retorna: bool. True si ese jugador tiene 3 en línea.                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
     """
-    Autor: Laura Herrera
-    Revisa si el jugador actual tiene una línea (3 en raya) en filas,
-    columnas o diagonales.
+    def jugador_gana(self, estado, jugador):
+        """True si hay 3 en línea (filas/columnas/diagonales)."""
+        # Filas
+        if estado[0] == estado[1] == estado[2] == jugador: return True
+        if estado[3] == estado[4] == estado[5] == jugador: return True
+        if estado[6] == estado[7] == estado[8] == jugador: return True
+        # Columnas
+        if estado[0] == estado[3] == estado[6] == jugador: return True
+        if estado[1] == estado[4] == estado[7] == jugador: return True
+        if estado[2] == estado[5] == estado[8] == jugador: return True
+        # Diagonales
+        if estado[0] == estado[4] == estado[8] == jugador: return True
+        if estado[2] == estado[4] == estado[6] == jugador: return True
+        return False
     """
-    # Comprobar filas
-    for i in range(3):
-        if tablero[i][0] == tablero[i][1] == tablero[i][2] != "":
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   verificar_ganador(): Anuncia ganador/empate y retorna True si terminó.     ║
+    ║       retorna: bool.                                                         ║
+    ║            -True si la partida terminó (ganó alguien o empate)               ║
+    ║            -False si sigue                                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+    """
+    def verificar_ganador(self):
+        """Anuncia ganador/empate y retorna True si terminó."""
+        if self.jugador_gana(self.tablero, self.jugadorHumano):
+            os.system("cls" if os.name == "nt" else "clear")
+            print(f" ¡Jugador {self.jugadorHumano} gana la partida!")
             return True
-
-    # Comprobar columnas
-    for j in range(3):
-        if tablero[0][j] == tablero[1][j] == tablero[2][j] != "":
+        if self.jugador_gana(self.tablero, self.jugadorBot):
+            os.system("cls" if os.name == "nt" else "clear")
+            print(f" ¡Jugador {self.jugadorBot} gana la partida!")
             return True
-
-    # Comprobar diagonales
-    if tablero[0][0] == tablero[1][1] == tablero[2][2] != "":
-        return True
-    if tablero[0][2] == tablero[1][1] == tablero[2][0] != "":
-        return True
-
-    return False
-
-
-def tablero_lleno() -> bool:
+        if self.tablero_lleno(self.tablero):
+            os.system("cls" if os.name == "nt" else "clear")
+            print(" ¡Empate!")
+            return True
+        return False
     """
-    Autor: Laura Herrera
-    Devuelve True si no hay celdas vacías en el tablero.
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   iniciar(): Ejecuta el bucle del juego (humano - computador) hasta terminar ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
     """
-    for fila in tablero:
-        for celda in fila:
-            if celda == "":
-                return False
-    return True
+    def iniciar(self):
+        """Bucle principal: humano → IA (Minimax) hasta fin."""
+        bot = JugadorComputadora(self.jugadorBot)
+        humano = JugadorHumano(self.jugadorHumano)
 
+        while True:
+            os.system("cls" if os.name == "nt" else "clear")
+            print(f" Turno del jugador {self.jugadorHumano}")
+            self.mostrar_tablero()
 
-def reiniciar_juego() -> None:
+            # Turno Humano
+            casilla = humano.movimiento_humano(self.tablero)
+            self.tablero[casilla] = self.jugadorHumano
+            if self.verificar_ganador():
+                break
+
+            # Turno Bot (IA Minimax)
+            casilla = bot.movimiento_maquina(self.tablero)
+            self.tablero[casilla] = self.jugadorBot
+            if self.verificar_ganador():
+                break
+
+        print()
+        self.mostrar_tablero()
+"""     
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ 2) class JugadorHumano(TicTacToe)                                            ║
+║ ──────────────────────────────────────────────────────────────────────────── ║
+║  Atributos:                                                                  ║
+║      letra (string): 'X','O'.                                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+class JugadorHumano:
+    # Guarda la letra y solicita jugada válida (1-9).
+
+    def __init__(self, letra: str):
+        # Define la letra ('X' u 'O')."""
+        self.letra = letra
     """
-    Autor: Laura Herrera
-    Reinicia el estado del juego:
-    - Limpia el tablero lógico y visual.
-    - Restablece el jugador a 'X' y actualiza la etiqueta de turno.
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   movimiento_humano(estado): Solicita y valida la jugada del humano          ║
+    ║       retorna: índice (0-8) de la casilla elegida libre                      ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
     """
-    global tablero, jugador_actual
+    def movimiento_humano(self, estado: list[str]) -> int:
+        # Pide una casilla (1-9) y retorna índice [0..8] libre.
+        while True:
+            try:
+                casilla = int(input("Ingresa la casilla (1-9)="))
+            except ValueError:
+                print("Entrada inválida. Debe ser un número del 1 al 9")
+                continue
+            if 1 <= casilla <= 9 and estado[casilla - 1] == "-":
+                return casilla - 1
+            print("Movimiento no válido. Intenta con una casilla libre del 1 al 9")
+"""     
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ 3) class JugadorComputadora(TicTacToe)                                       ║
+║ ──────────────────────────────────────────────────────────────────────────── ║
+║  Atributos:                                                                  ║
+║      jugadorBot (string): 'X','O'.                                           ║
+║      jugadorHumano (string): 'X','O' asignada al humano.                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+class JugadorComputadora(TicTacToe):
 
-    # Limpiar tablero lógico
-    tablero = [["" for _ in range(3)] for _ in range(3)]
-    # Limpiar tablero visual
-    for i in range(3):
-        for j in range(3):
-            botones[i][j].config(text="")
+    def __init__(self, letra: str):
+        # Inicializa IA con su letra y deduce la del humano.
+        self.jugadorBot = letra
+        self.jugadorHumano = "X" if letra == "O" else "O"
+    """
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   jugador_de_turno(estado): Devuelve 'X' u 'O' según conteo en tablero.      ║
+    ║       retorna: string. 'X' u 'O'.                                            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+    """
+    def jugador_de_turno(self, estado: list[str]) -> str:
+        # Devuelve a quién le toca ('X' u 'O').
+        x = sum(1 for c in estado if c == "X")
+        o = sum(1 for c in estado if c == "O")
+        if self.jugadorHumano == "X":
+            return "X" if x == o else "O"
+        return "O" if x == o else "X"
+    """ 
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   acciones(estado):
+    ║       retorna: índices de casillas vacías ('-').                             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+    """
+    def acciones(self, estado: list[str]) -> list[int]:
+        return [i for i, c in enumerate(estado) if c == "-"]
+    """
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   resultado(estado, accion):            ║
+    ║       retorna: Copia del estado aplicando la acción.                         ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+    """
+    def resultado(self, estado: list[str], accion: int) -> list[str]:
+        # Nuevo estado tras aplicar la acción.
+        nuevo = estado.copy()
+        jugador = self.jugador_de_turno(estado)
+        nuevo[accion] = jugador
+        return nuevo
+    """
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   terminal(estado): Verifica si el juego terminó (alguien ganó).             ║
+    ║       retorna: bool. True si X u O ganó.                                     ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+    """
+    def terminal(self, estado: list[str]) -> bool:
+        # True si X u O ganó.
+        return self.jugador_gana(estado, "X") or self.jugador_gana(estado, "O")
+    """
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   minimax(estado, jugador): Algoritmo Minimax recursivo                      ║
+    ║       retorna: dict {'position': mejor_indice, 'score': puntaje}.            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+    """
+    def minimax(self, estado: list[str], jugador: str) -> dict:
+        max_jugador = self.jugadorHumano
+        otro = 'O' if jugador == 'X' else 'X'
 
-    # Restablecer turno y etiqueta
-    jugador_actual = "X"
-    assert ventana is not None
-    ventana.etiqueta_turno.config(text=f"Turno de: {jugador_actual}")  # type: ignore[attr-defined]
+        if self.terminal(estado):
+            libre = len(self.acciones(estado)) + 1
+            return {'position': None,
+                    'score': (1 * libre) if otro == max_jugador else (-1 * libre)}
+        elif self.tablero_lleno(estado):
+            return {'position': None, 'score': 0}
 
+        mejor = {'position': None, 'score': -math.inf} if jugador == max_jugador \
+                else {'position': None, 'score': math.inf}
 
+        for mov in self.acciones(estado):
+            nuevo = self.resultado(estado, mov)
+            puntaje = self.minimax(nuevo, otro)
+            puntaje = {'position': mov, 'score': puntaje['score']}
+
+            if jugador == max_jugador:
+                if puntaje['score'] > mejor['score']:
+                    mejor = puntaje
+            else:
+                if puntaje['score'] < mejor['score']:
+                    mejor = puntaje
+
+        return mejor
+    """
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║ FUNCION:                                                                     ║
+    ║   movimiento_maquina(estado): Elige la casilla óptima mediante Minimax.      ║
+    ║       retorna: índice (0-8) de la casilla elegida por la IA.                 ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+    """
+    def movimiento_maquina(self, estado: list[str]) -> int:
+        # Elige la casilla óptima mediante Minimax.
+        return self.minimax(estado, self.jugadorBot)['position']
+
+# Iniciar el juego
 if __name__ == "__main__":
-    crear_ventana()
+    tictactoe = TicTacToe()
+    tictactoe.iniciar()
