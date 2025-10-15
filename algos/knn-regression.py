@@ -1,128 +1,206 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Algoritmo: K-NN (Regresión) — Precio de auto vs. kilometraje
-# Autor: Laura Herrera · Fecha: 2025-10-14
+# Regresión KNN con datos de carros (kms vs precio).
+# Autor: Laura Herrera— Fecha: 2025-10-14
 #
-# Requisitos: Solo librerías estándar (math, random).
-# Uso: Importado por app.py para la interfaz web. Puede correrse en consola
-#      (ver bloque __main__) para una prueba rápida.
-# ─────────────────────────────────────────────────────────────────────────────
+# Requisitos:
+#   - pandas, numpy, scikit-learn, matplotlib (opcional para graficar)
+#   - Archivo CSV con columnas: 'kms', 'precio'
+#
+# Flujo:
+#   1) Cargar datos
+#   2) Escalar kms y precio con MinMax
+#   3) Entrenar KNN (n_neighbors configurable)
+#   4) Predecir precio para un kms dado o generar curva 0..N
+#   5) (Opcional) Graficar datos crudos + curva predicha
+# ------------------------------------------------------------
 
-import math
-import random
+from __future__ import annotations
+import os
+import numpy as np
+import pandas as pd
+from dataclasses import dataclass
+from typing import Tuple, Optional
 
-"""
-╔══════════════════════════════════════════════════════════════════════════════╗
-║ 1) Datos y utilidades                                                        ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║   Representamos cada punto como (x, y)                                       ║
-║   x = kilometraje (km)    y = precio (USD)                                   ║
-║   Distancia 1D: |x - xq|                                                     ║
-║   Regresión KNN: promedio (o ponderado) de y en los k vecinos más cercanos.  ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-"""
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.neighbors import KNeighborsRegressor
 
-def distancia_1d(a: float, b: float) -> float:
-    return abs(a - b)
+# Matplotlib es opcional; solo lo importamos si vamos a graficar.
+try:
+    import matplotlib.pyplot as plt
+    _HAS_MPL = True
+except Exception:
+    _HAS_MPL = False
 
-def promedio(valores):
-    if not valores: 
-        return 0.0
-    return sum(valores) / len(valores)
 
-def promedio_ponderado(pares_dist_y, eps=1e-9):
+@dataclass
+class DatosEscalados:
+    """Contenedor de escaladores y arrays escalados."""
+    escala_kms: MinMaxScaler
+    escala_precio: MinMaxScaler
+    kms_scaled: np.ndarray          # shape (n, 1)
+    precio_scaled: np.ndarray       # shape (n, 1)
+
+
+class KNNRegresionCarros:
     """
-    pares_dist_y: lista de (dist, y)
-    w_i = 1 / (dist + eps)   (si dist -> 0, el peso domina)
+    Implementación compacta de KNN-Regression para (kms → precio).
+
+    - Usa MinMaxScaler (como en tu notebook) para kms y precio.
+    - Mantiene el modelo y los escaladores para invertir la escala en predicciones.
     """
-    if not pares_dist_y:
-        return 0.0
-    num = 0.0
-    den = 0.0
-    for d, y in pares_dist_y:
-        w = 1.0 / (d + eps)
-        num += w * y
-        den += w
-    return num / den if den > 0 else 0.0
+
+    def __init__(self, n_vecinos: int = 3):
+        self.n_vecinos = int(n_vecinos)
+        self.df: Optional[pd.DataFrame] = None
+        self.escalado: Optional[DatosEscalados] = None
+        self.knn: Optional[KNeighborsRegressor] = None
+
+    # ------------------------ Carga y validaciones ------------------------
+
+    def cargar_csv(self, ruta_csv: str) -> pd.DataFrame:
+        if not os.path.exists(ruta_csv):
+            raise FileNotFoundError(f"No encontré el archivo: {ruta_csv}")
+        df = pd.read_csv(ruta_csv)
+
+        # Validación mínima de columnas
+        esperadas = {"kms", "precio"}
+        if not esperadas.issubset(df.columns.str.lower()):
+            raise ValueError(f"El CSV debe contener columnas: {esperadas}. "
+                             f"Columnas actuales: {list(df.columns)}")
+
+        # Normaliza nombres por si vienen con mayúsculas
+        df = df.rename(columns={c: c.lower() for c in df.columns})
+        # Limpieza simple: elimina filas con NaN o valores negativos
+        df = df.dropna(subset=["kms", "precio"]).copy()
+        df = df[(df["kms"] >= 0) & (df["precio"] >= 0)].copy()
+
+        if df.empty:
+            raise ValueError("El CSV quedó vacío tras la limpieza (revisa datos).")
+
+        self.df = df
+        return df
+
+    # ------------------------ Escalamiento ------------------------
+
+    def _escalar(self, df: pd.DataFrame) -> DatosEscalados:
+        escala_kms = MinMaxScaler()
+        escala_precio = MinMaxScaler()
+
+        kms = df["kms"].values.reshape(-1, 1)
+        precio = df["precio"].values.reshape(-1, 1)
+
+        kms_s = escala_kms.fit_transform(kms)
+        precio_s = escala_precio.fit_transform(precio)
+
+        esc = DatosEscalados(
+            escala_kms=escala_kms,
+            escala_precio=escala_precio,
+            kms_scaled=kms_s,
+            precio_scaled=precio_s,
+        )
+        self.escalado = esc
+        return esc
+
+    # ------------------------ Entrenamiento ------------------------
+
+    def entrenar(self, ruta_csv: str, n_vecinos: Optional[int] = None) -> None:
+        """Carga datos, escala y entrena el KNN."""
+        if n_vecinos is not None:
+            self.n_vecinos = int(n_vecinos)
+
+        df = self.cargar_csv(ruta_csv)
+        esc = self._escalar(df)
+
+        knn = KNeighborsRegressor(n_neighbors=self.n_vecinos)
+        knn.fit(esc.kms_scaled, esc.precio_scaled)
+        self.knn = knn
+
+    # ------------------------ Predicción ------------------------
+
+    def predecir_precio(self, kms: float) -> float:
+        """
+        Predice precio (en la escala original) para un kms dado.
+        Requiere haber llamado a entrenar() antes.
+        """
+        if self.knn is None or self.escalado is None:
+            raise RuntimeError("Primero llama a entrenar(ruta_csv).")
+
+        kms_arr = np.array([[kms]], dtype=float)
+        kms_s = self.escalado.escala_kms.transform(kms_arr)
+        precio_s = self.knn.predict(kms_s)
+        precio = self.escalado.escala_precio.inverse_transform(precio_s)
+        return float(precio[0, 0])
+
+    def curva_predicha(self, max_kms: int = 140_000, paso: int = 1) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Genera (x, y) de 0..max_kms con paso ‘paso’ y devuelve kms y precios (escala original).
+        Útil para graficar la curva completa como en tu notebook.
+        """
+        if self.knn is None or self.escalado is None:
+            raise RuntimeError("Primero llama a entrenar(ruta_csv).")
+
+        xs = np.arange(0, max(1, int(max_kms)) + 1, max(1, int(paso)), dtype=float).reshape(-1, 1)
+        xs_s = self.escalado.escala_kms.transform(xs)
+        ys_s = self.knn.predict(xs_s)
+        ys = self.escalado.escala_precio.inverse_transform(ys_s).reshape(-1)
+        return xs.reshape(-1), ys
+
+    # ------------------------ Gráfica (opcional) ------------------------
+
+    def graficar(self, max_kms: int = 140_000, paso: int = 1, linewidth: int = 4) -> None:
+        """
+        Grafica puntos originales y la curva KNN (si matplotlib está disponible).
+        """
+        if not _HAS_MPL:
+            print("matplotlib no está disponible. Instálalo para ver la gráfica.")
+            return
+        if self.df is None:
+            raise RuntimeError("No hay datos cargados. Llama a entrenar(ruta_csv) primero.")
+
+        xs, ys = self.curva_predicha(max_kms=max_kms, paso=paso)
+
+        plt.figure(figsize=(8, 5))
+        # Curva predicha
+        plt.plot(xs, ys, linewidth=linewidth, alpha=0.8)
+        # Puntos crudos
+        plt.scatter(self.df["kms"], self.df["precio"], marker="*", s=120, alpha=0.7)
+
+        plt.title("Vehículos — KNN Regresión", fontsize=16)
+        plt.xlabel("Kms recorridos")
+        plt.ylabel("Precio ($)")
+        plt.ticklabel_format(style="plain")
+        plt.tight_layout()
+        plt.show()
 
 
-"""
-╔══════════════════════════════════════════════════════════════════════════════╗
-║ 2) Clase KNNRegresion                                                        ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║ Atributos:                                                                   ║
-║   datos: list[(km: float, precio: float)]                                    ║
-║   k: int                                                                     ║
-║   ponderado: bool  (True = 1/dist, False = promedio simple)                  ║
-║ Métodos clave:                                                               ║
-║   set_k(k), set_ponderado(bool)                                              ║
-║   agregar(km, precio), aleatorios(n, rango_km, rango_precio), limpiar()      ║
-║   predecir(km) -> float                                                      ║
-║   curva(xmin, xmax, npts) -> list[(x, y_hat)]                                ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-"""
-class KNNRegresion:
-    def __init__(self, k: int = 5, ponderado: bool = True):
-        self.datos: list[tuple[float, float]] = []
-        self.k = max(1, int(k))
-        self.ponderado = bool(ponderado)
+# ------------------------ Uso desde terminal ------------------------
 
-    def set_k(self, k: int):
-        self.k = max(1, int(k))
+def _demo():
+    """
+    Ejecución de ejemplo:
+      $ python knn-regression.py carros.csv 3 20000
 
-    def set_ponderado(self, b: bool):
-        self.ponderado = bool(b)
+    - Entrena con 'carros.csv'
+    - k vecinos = 3
+    - Predice precio para 20,000 kms
+    - Muestra la gráfica (si está matplotlib)
+    """
+    import sys
+    ruta = "carros.csv"
+    k = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+    kms_prueba = float(sys.argv[3]) if len(sys.argv) > 3 else 20_000
 
-    def agregar(self, km: float, precio: float):
-        self.datos.append((float(km), float(precio)))
+    modelo = KNNRegresionCarros(n_vecinos=k)
+    modelo.entrenar(ruta, n_vecinos=k)
+    pred = modelo.predecir_precio(kms_prueba)
 
-    def limpiar(self):
-        self.datos.clear()
+    print(f"→ KNN(k={k}) precio estimado para {kms_prueba:,.0f} kms: {pred:,.2f}")
 
-    def aleatorios(self, n: int = 50, rango_km=(5_000, 250_000), rango_precio=(2_000, 50_000), semilla: int | None=None):
-        if semilla is not None:
-            random.seed(semilla)
-        for _ in range(max(0, int(n))):
-            km = random.uniform(*rango_km)
-            # Relación negativa típica: a más km, menor precio + ruido
-            base = max(rango_precio[0], rango_precio[1] - km * (rango_precio[1] - rango_precio[0]) / max(1, (rango_km[1]-rango_km[0])))
-            ruido = random.uniform(-0.10, 0.10) * base
-            precio = max(rango_precio[0], min(rango_precio[1], base + ruido))
-            self.agregar(km, precio)
-
-    def predecir(self, km_query: float) -> float | None:
-        if not self.datos:
-            return None
-        # distancias
-        dists = [ (distancia_1d(km, km_query), precio) for (km, precio) in self.datos ]
-        dists.sort(key=lambda t: t[0])
-        vecinos = dists[:self.k]
-        if self.ponderado:
-            yhat = promedio_ponderado(vecinos)
-        else:
-            yhat = promedio([y for _, y in vecinos])
-        return yhat
-
-    def curva(self, xmin: float, xmax: float, npts: int = 50) -> list[tuple[float, float]]:
-        """Muestrea la 'curva' de regresión sobre el rango [xmin, xmax]."""
-        if npts <= 1:
-            npts = 2
-        paso = (xmax - xmin) / (npts - 1)
-        out = []
-        for i in range(npts):
-            x = xmin + i * paso
-            y = self.predecir(x)
-            if y is None: y = 0.0
-            out.append((x, y))
-        return out
+    # Gráfica rápida (si tienes matplotlib)
+    try:
+        modelo.graficar(max_kms=140_000, paso=500)
+    except Exception as e:
+        print(f"(Aviso) No se pudo graficar: {e}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Prueba rápida en consola (opcional)
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    knn = KNNRegresion(k=7, ponderado=True)
-    # Datos de ejemplo sintéticos
-    knn.aleatorios(n=60, rango_km=(10_000, 200_000), rango_precio=(3_000, 45_000), semilla=7)
-    q = 120_000
-    y = knn.predecir(q)
-    print(f"Consulta: km={q} -> precio estimado ≈ {y:.2f} USD")
+    _demo()

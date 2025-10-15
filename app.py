@@ -20,7 +20,7 @@ ALGO_FILES = [
     "algos/knn-algorithm.py",
     "algos/wumpus-algorithm.py",
     "algos/markov-algorithm.py",
-    "algos/knn-regression-algorithm.py",
+    "algos/knn-regression.py",
 ]
 
 # ---------------- Utilidades de carga dinámica ----------------
@@ -762,104 +762,89 @@ def _knn_step(state, action: str, mod):
         }
         return state
     return state
+# ---------------- Adaptador KNN (regresion) ----------------
+import os, json
+from flask import request, jsonify, render_template
+from importlib.machinery import SourceFileLoader
 
-# ─────────────── Adaptador K-NN Regresión ───────────────
-# ─────────────── Adaptador K-NN Regresión ───────────────
-def _knnreg_init(mod):
-    modelo = mod.KNNRegresion(k=7, ponderado=True)
-    return {
-        "modelo": modelo,
-        "rango_km": (0.0, 250_000.0),
-        "rango_precio": (0.0, 60_000.0),
-        "query_km": None,
-        "y_hat": None,
-        "curva": [],
-        "npts_curva": 64
-    }
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def _knnreg_view(state):
-    m = state["modelo"]
-    return {
-        "k": m.k,
-        "ponderado": m.ponderado,
-        "datos": m.datos,
-        "rango_km": state["rango_km"],
-        "rango_precio": state["rango_precio"],
-        "query_km": state["query_km"],
-        "y_hat": state["y_hat"],
-        "curva": state["curva"],
-        "npts_curva": state["npts_curva"]
-    }
+# Intentamos varias rutas/nombres comunes
+_KNN_CANDIDATES = [os.path.join(BASE_DIR, "algos/knn-regression.py"),]
+_KNN_LOADED = {"mod": None, "path": None}
+_KNN_STATE = {"model": None, "csv": None, "k": 3}
 
-def _knnreg_step(state, action: str, mod):
-    m = state["modelo"]
+def _load_knn_module():
+    """Carga perezosa del módulo de KNN desde el primer path existente."""
+    if _KNN_LOADED["mod"]:
+        return _KNN_LOADED["mod"]
 
-    if action == "clear":
-        m.limpiar(); state.update({"query_km": None, "y_hat": None, "curva": []})
-        return state
+    for p in _KNN_CANDIDATES:
+        if os.path.exists(p):
+            mod = SourceFileLoader("mod_knn_regression_py", p).load_module()
+            _KNN_LOADED["mod"] = mod
+            _KNN_LOADED["path"] = p
+            return mod
 
-    if action.startswith("set_k:"):
-        m.set_k(int(action.split(":")[1]))
-        if state["query_km"] is not None:
-            y = m.predecir(state["query_km"]); state["y_hat"] = y
-        if state["curva"]:
-            xmin, xmax = state["rango_km"]
-            state["curva"] = m.curva(xmin, xmax, state["npts_curva"])
-        return state
+    raise FileNotFoundError(
+        "No encontré el archivo de lógica KNN. Coloca 'knn-regression.py' "
+        "junto a app.py o ajusta las rutas del cargador."
+    )
 
-    if action.startswith("set_weighted:"):
-        b = bool(int(action.split(":")[1]))
-        m.set_ponderado(b)
-        if state["query_km"] is not None:
-            state["y_hat"] = m.predecir(state["query_km"])
-        if state["curva"]:
-            xmin, xmax = state["rango_km"]
-            state["curva"] = m.curva(xmin, xmax, state["npts_curva"])
-        return state
+@app.get("/algo/knn-regression.py")
+def knn_regression_page():
+    return render_template("knn-regression.html")
 
-    if action.startswith("add:"):
-        _, payload = action.split(":", 1)
-        skm, sp = payload.split(",", 1)
-        km, precio = float(skm), float(sp)
-        m.agregar(km, precio)
-        return state
+@app.post("/algo/knn-regression.py/train")
+def knn_regression_train():
+    try:
+        KNN_MOD = _load_knn_module()
+    except FileNotFoundError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
-    if action.startswith("random:"):
-        n = int(action.split(":")[1])
-        m.aleatorios(n=n, rango_km=state["rango_km"], rango_precio=state["rango_precio"])
-        return state
+    data = request.get_json(silent=True) or {}
+    ruta_csv = data.get("csv") or os.path.join(BASE_DIR, "carros.csv")
+    k = int(data.get("k") or 3)
 
-    if action.startswith("predict:"):
-        km = float(action.split(":")[1])
-        y = m.predecir(km)
-        state["query_km"] = km
-        state["y_hat"] = y
-        return state
+    if not os.path.exists(ruta_csv):
+        return jsonify({"ok": False, "error": f"No encontré {ruta_csv}"}), 400
 
-    if action == "curve":
-        xmin, xmax = state["rango_km"]
-        state["curva"] = m.curva(xmin, xmax, state["npts_curva"])
-        return state
+    modelo = KNN_MOD.KNNRegresionCarros(n_vecinos=k, ponderado=True)
+    try:
+        modelo.entrenar(ruta_csv, n_vecinos=k)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
-    if action.startswith("set_range_km:"):
-        _, payload = action.split(":", 1)
-        smin, smax = payload.split(",", 1)
-        state["rango_km"] = (float(smin), float(smax))
-        return state
+    _KNN_STATE.update({"model": modelo, "csv": ruta_csv, "k": k})
+    return jsonify({"ok": True, "csv": os.path.basename(ruta_csv), "k": k})
 
-    if action.startswith("set_range_price:"):
-        _, payload = action.split(":", 1)
-        smin, smax = payload.split(",", 1)
-        state["rango_precio"] = (float(smin), float(smax))
-        return state
+@app.get("/algo/knn-regression.py/predict")
+def knn_regression_predict():
+    modelo = _KNN_STATE.get("model")
+    if not modelo:
+        return jsonify({"ok": False, "error": "Primero entrena el modelo."}), 400
 
-    if action.startswith("set_curve_pts:"):
-        npts = max(8, int(action.split(":")[1]))
-        state["npts_curva"] = npts
-        return state
+    try:
+        kms = float(request.args.get("kms", "20000"))
+        precio = modelo.predecir_precio(kms)
+        return jsonify({"ok": True, "kms": kms, "precio": precio})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
-    return state
+@app.get("/algo/knn-regression.py/curve")
+def knn_regression_curve():
+    modelo = _KNN_STATE.get("model")
+    if not modelo:
+        return jsonify({"ok": False, "error": "Primero entrena el modelo."}), 400
 
+    try:
+        max_kms = int(request.args.get("max_kms", "140000"))
+        paso = int(request.args.get("paso", "1000"))
+        xs, ys = modelo.curva_predicha(max_kms=max_kms, paso=paso)
+        return jsonify({"ok": True, "xs": xs, "ys": ys})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+            
 # ----------------------------------------------------- Inicialización por archivo ------------------------------------------------
 def init_for(algo_name: str):
     path = _algo_find(algo_name)
