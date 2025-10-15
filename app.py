@@ -8,6 +8,30 @@ from urllib.parse import urlparse, urlencode, quote, unquote
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
+# === IMPORTS NECESARIOS PARA KNN REGRESIÓN ===
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.neighbors import KNeighborsRegressor
+
+app = Flask(__name__, template_folder="templates")
+app.secret_key = secrets.token_hex(16)
+
+# Archivos de algoritmos disponibles (rutas relativas)
+ALGO_FILES = [
+    "algos/minimax-algorithm.py",
+    "algos/a-algorithm.py",
+    "algos/knn-algorithm.py",
+    "algos/wumpus-algorithm.py",
+    "algos/markov-algorithm.py",
+    "algos/knn-regression.py",
+]
+# === IMPORTS NECESARIOS PARA KNN REGRESIÓN ===
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.neighbors import KNeighborsRegressor
+
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
 
@@ -44,6 +68,51 @@ def load_module_by_path(path: Path, logical_name: str):
     spec.loader.exec_module(mod)
     return mod
 
+def load_and_fit(csv_path: str, k: int):
+    """
+    Carga 'carros.csv' (debe tener columnas 'kms' y 'precio'),
+    normaliza (Min-Max) y entrena KNN sobre los datos escalados.
+    Devuelve (df, escala_kms, escala_precio, knn, Xs, ys).
+    """
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"No encuentro el archivo: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+    if not {"kms", "precio"}.issubset(df.columns):
+        raise ValueError(f"El CSV debe tener columnas 'kms' y 'precio'. Encontradas: {df.columns.tolist()}")
+
+    X = df["kms"].values.reshape(-1, 1)
+    y = df["precio"].values.reshape(-1, 1)
+
+    # Escaladores independientes
+    escala_kms = MinMaxScaler()
+    escala_precio = MinMaxScaler()
+    Xs = escala_kms.fit_transform(X)
+    ys = escala_precio.fit_transform(y)
+
+    # KNN sobre datos escalados
+    knn = KNeighborsRegressor(n_neighbors=max(1, int(k)))
+    knn.fit(Xs, ys.ravel())
+
+    return df, escala_kms, escala_precio, knn, Xs, ys
+
+def make_curve(escala_kms, escala_precio, knn, max_km=140000, step=1000):
+    """
+    Construye curva en crudo y en escalado.
+    """
+    grid_raw = np.arange(0, int(max_km) + 1, int(step)).reshape(-1, 1)
+    grid_scaled = escala_kms.transform(grid_raw)
+
+    preds_scaled = knn.predict(grid_scaled).reshape(-1, 1)
+    preds_raw = escala_precio.inverse_transform(preds_scaled).reshape(-1, 1)
+
+    return (
+        grid_raw.ravel().tolist(),
+        preds_raw.ravel().tolist(),
+        grid_scaled.ravel().tolist(),
+        preds_scaled.ravel().tolist(),
+    )
+# ---------------- Gestión de sesión ----------------
 def _sid() -> str:
     sid = session.get("sid")
     if not sid:
@@ -818,7 +887,71 @@ def algo_page(name: str):
         _STORE[key] = (ui, mod, st, label)
     tpl_name = name.replace(".py", ".html")
     return render_template(tpl_name, name=name)
+@app.route("/knn")
+def knn_page():
+    # Renderiza la interfaz
+    return render_template("knn-regression.html")
 
+
+@app.route("/api/knn", methods=["POST"])
+def api_knn():
+    """
+    Entrena y devuelve:
+    - Puntos crudos (kms, precio)
+    - Curva KNN en crudo (x raw, y raw)
+    - Datos escalados (kms_minmax, precio_minmax)
+    - Curva KNN en escalado
+    """
+    data = request.get_json(silent=True) or {}
+    csv_path = data.get("csv_path", "carros.csv")
+    k = int(data.get("k", 3))
+    max_km = int(data.get("max_km", 140000))
+    step = int(data.get("step", 1000))
+
+    df, escala_kms, escala_precio, knn, Xs, ys = load_and_fit(csv_path, k)
+
+    grid_raw, preds_raw, grid_scaled, preds_scaled = make_curve(
+        escala_kms, escala_precio, knn, max_km=max_km, step=step
+    )
+
+    payload = {
+        "crudos": {
+            "x": df["kms"].tolist(),
+            "y": df["precio"].tolist(),
+        },
+        "curva_raw": {
+            "x": grid_raw,
+            "y": preds_raw,
+        },
+        "escalados": {
+            "x": Xs.ravel().tolist(),
+            "y": ys.ravel().tolist(),
+        },
+        "curva_escalados": {
+            "x": grid_scaled,
+            "y": preds_scaled,
+        },
+    }
+    return jsonify(payload)
+
+
+@app.route("/api/predict", methods=["POST"])
+def api_predict():
+    """
+    Predice precio para 'kms' (en escala cruda).
+    """
+    data = request.get_json(silent=True) or {}
+    csv_path = data.get("csv_path", "carros.csv")
+    k = int(data.get("k", 3))
+    kms = float(data.get("kms", 0))
+
+    df, escala_kms, escala_precio, knn, _, _ = load_and_fit(csv_path, k)
+
+    x_scaled = escala_kms.transform(np.array([[kms]]))
+    y_scaled = knn.predict(x_scaled).reshape(-1, 1)
+    y_pred = float(escala_precio.inverse_transform(y_scaled)[0, 0])
+
+    return jsonify({"kms": kms, "precio_pred": y_pred})
 # ---------------- APIs por algoritmo ----------------
 @app.get("/api/<name>/state")
 def api_state(name: str):
