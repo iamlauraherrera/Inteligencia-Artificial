@@ -1,11 +1,9 @@
 # Autor: Laura Herrera — Fecha: 2025-10-14
 
-import os, sys, secrets, importlib.util
+import os, sys, secrets, importlib.util, heapq, random, re
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Any
 from flask import Flask, render_template, jsonify, request, session, send_from_directory
-# Para cadenas de markov
-import re
 from urllib.parse import urlparse, urlencode, quote, unquote
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -16,7 +14,7 @@ app.secret_key = secrets.token_hex(16)
 # Archivos de algoritmos disponibles (rutas relativas)
 ALGO_FILES = [
     "algos/minimax-algorithm.py",
-    "algos/a-algorithm.py",   
+    "algos/a-algorithm.py",
     "algos/knn-algorithm.py",
     "algos/wumpus-algorithm.py",
     "algos/markov-algorithm.py",
@@ -52,6 +50,7 @@ def _sid() -> str:
         sid = secrets.token_urlsafe(16)
         session["sid"] = sid
     return sid
+
 # ---------- PROXY GUTENBERG (evita CORS) ----------
 _ALLOWED_NETLOCS = {"www.gutenberg.org", "gutenberg.org"}
 
@@ -131,6 +130,7 @@ def _resolve_gutenberg_url(user_url: str) -> str:
         elif not href.startswith("http"):
             href = "https://www.gutenberg.org/" + href.lstrip("/")
         return href
+
 # ---------------- Estado en memoria por sesión+archivo ----------------
 # { (sid, algo_name) : (ui, mod, state_dict, label) }
 _STORE: Dict[Tuple[str,str], Tuple[str, object, dict, str]] = {}
@@ -219,8 +219,20 @@ def _ttt_step(state, action: str):
         if not _ttt_status(g).startswith("Turno"): state["fin"] = True
         return state
     return state
-# ---------------- Adaptador A* (web, rápido y con random walls) ----------------
-import heapq, random
+
+# --- A* mínimo (Manhattan, 4-dir) para generar frames como en el video ---
+def _to_rc(idx, n): return divmod(idx, n)
+def _to_idx(r, c, n): return r*n + c
+def _h(a, b, n):
+    ra, ca = _to_rc(a, n); rb, cb = _to_rc(b, n)
+    return abs(ra-rb)+abs(ca-cb)
+
+def _vecinos(i, n, libres):
+    r,c = _to_rc(i, n)
+    if r+1<n and libres[_to_idx(r+1,c,n)]==1: yield _to_idx(r+1,c,n)
+    if r-1>=0 and libres[_to_idx(r-1,c,n)]==1: yield _to_idx(r-1,c,n)
+    if c+1<n and libres[_to_idx(r,c+1,n)]==1: yield _to_idx(r,c+1,n)
+    if c-1>=0 and libres[_to_idx(r,c-1,n)]==1: yield _to_idx(r,c-1,n)
 
 def _astar_init(mod):
     n = 50
@@ -347,20 +359,6 @@ def _astar_step(state, action: str, mod):
 
     return state
 
-# --- A* mínimo (Manhattan, 4-dir) para generar frames como en el video ---
-def _to_rc(idx, n): return divmod(idx, n)
-def _to_idx(r, c, n): return r*n + c
-def _h(a, b, n):
-    ra, ca = _to_rc(a, n); rb, cb = _to_rc(b, n)
-    return abs(ra-rb)+abs(ca-cb)
-
-def _vecinos(i, n, libres):
-    r,c = _to_rc(i, n)
-    if r+1<n and libres[_to_idx(r+1,c,n)]==1: yield _to_idx(r+1,c,n)
-    if r-1>=0 and libres[_to_idx(r-1,c,n)]==1: yield _to_idx(r-1,c,n)
-    if c+1<n and libres[_to_idx(r,c+1,n)]==1: yield _to_idx(r,c+1,n)
-    if c-1>=0 and libres[_to_idx(r,c-1,n)]==1: yield _to_idx(r,c-1,n)
-
 def _astar_compute_frames(n, cells, origen, meta):
     libres = [1 if cells[k]==0 else 0 for k in range(n*n)]
     s, t = origen, meta
@@ -394,8 +392,8 @@ def _astar_compute_frames(n, cells, origen, meta):
         visit.add(u)
         snap(u)
 
-        if u == t:
-            path=[t]
+        if u == meta:
+            path=[meta]
             while path[-1] in came:
                 path.append(came[path[-1]])
                 if path[-1]==s: break
@@ -407,16 +405,15 @@ def _astar_compute_frames(n, cells, origen, meta):
             if cand < g.get(v, float("inf")):
                 came[v] = u
                 g[v] = cand
-                f[v] = cand + _h(v, t, n)
+                f[v] = cand + _h(v, meta, n)
                 if v not in open_set and v not in visit:
                     tie += 1
                     heapq.heappush(heap, (f[v], tie, v))
                     open_set.add(v)
 
     return {"frames": frames, "camino": []}
-# ---------------- Adaptador Wumpus (probabilístico) ----------------
-from typing import Any
 
+# ---------------- Adaptador Wumpus (probabilístico) ----------------
 def _wumpus_init(mod):
     Mundo = getattr(mod, "MundoWumpusProb")
     mundo = Mundo(n=6, p_pozos=0.15, semilla=None)
@@ -482,105 +479,10 @@ def _wumpus_step(state, action: str, mod):
         return state
 
     return state
-# ---------------- Adaptador Markov (n-gramas) ----------------
-from urllib.parse import unquote
 
+# ---------------- Adaptador Markov (n-gramas) ----------------
 def _markov_init(mod):
     # estado inicial
-    orden = 2
-    corpus = getattr(mod, "ai_corpus", "")
-    Modelo = getattr(mod, "CadenaMarkov")
-    m = Modelo(orden)
-    m.entrenar(corpus)
-    st = {
-        "modelo": m,
-        "orden": orden,
-        "corpus": corpus,
-        "generado": [],
-        "estado": tuple(["<START>"]*orden),
-        "msg": "",
-    }
-    return st
-
-def _markov_view(state):
-    m = state["modelo"]
-    est = state["estado"]
-    dist = m.dist_siguiente(est)
-    # ordenar por prob desc y quedarse con top 12
-    filas = []
-    if dist:
-        # obtener conteos crudos también
-        cnts = m.transiciones.get(est, {})
-        filas = sorted([(w, p, cnts[w]) for w,p in dist.items()], key=lambda t: t[1], reverse=True)[:12]
-    return {
-        "orden": state["orden"],
-        "corpus": state["corpus"],
-        "generado": state["generado"],
-        "estado_actual": list(est),
-        "distribucion": filas,  # [ [palabra, prob, conteo] ]
-        "vocab": len({w for c in m.transiciones.values() for w in c.keys()}),
-        "estados": len(m.estados),
-        "transiciones": sum(sum(c.values()) for c in m.transiciones.values()),
-    }
-
-def _markov_step(state, action: str, mod):
-    m = state["modelo"]
-
-    if action == "reset":
-        state.update(_markov_init(mod))
-        return state
-
-    if action.startswith("set_order:"):
-        k = max(1, int(action.split(":")[1]))
-        state["orden"] = k
-        # re-entrenar con el mismo corpus
-        Modelo = getattr(mod, "CadenaMarkov")
-        m2 = Modelo(k)
-        m2.entrenar(state["corpus"])
-        state["modelo"] = m2
-        state["estado"] = tuple(["<START>"]*k)
-        state["generado"] = []
-        return state
-
-    if action.startswith("set_corpus:"):
-        txt_enc = action.split(":",1)[1]
-        txt = unquote(txt_enc)
-        state["corpus"] = txt
-        return state
-
-    if action == "train":
-        m = getattr(mod, "CadenaMarkov")(state["orden"])
-        m.entrenar(state["corpus"])
-        state["modelo"] = m
-        state["estado"] = tuple(["<START>"]*state["orden"])
-        state["generado"] = []
-        return state
-
-    if action.startswith("gen:"):
-        n = max(1, int(action.split(":")[1]))
-        gen = m.generar(n)
-        state["generado"] = gen
-        # deja el estado en <START>… para nueva simulación
-        state["estado"] = tuple(["<START>"]*state["orden"])
-        return state
-
-    if action == "step":
-        nuevo, tok = m.paso(state["estado"])
-        if tok is None:
-            # no hay transición — reinicia estado
-            state["estado"] = tuple(["<START>"]*state["orden"])
-        elif tok == "<END>":
-            state["estado"] = tuple(["<START>"]*state["orden"])
-        else:
-            state["estado"] = nuevo
-            state["generado"].append(tok)
-        return state
-
-    return state
-# ---------------- Adaptador Markov (n-gramas) ------------------------
-from urllib.parse import unquote
-
-def _markov_init(mod):
     orden = 2
     corpus = getattr(mod, "ai_corpus", "")
     Modelo = getattr(mod, "CadenaMarkov")
@@ -613,7 +515,7 @@ def _markov_view(state):
         "corpus": state["corpus"],
         "generado": state["generado"],
         "estado_actual": list(est),
-        "distribucion": filas,
+        "distribucion": filas,  # [ [palabra, prob, conteo] ]
         "vocab": len({w for c in m.transiciones.values() for w in c.keys()}),
         "estados": len(m.estados),
         "transiciones": sum(sum(c.values()) for c in m.transiciones.values()),
@@ -700,17 +602,15 @@ def _markov_step(state, action: str, mod):
         return state
 
     return state
-# ─────────────── Adaptador K-NN ───────────────
+
+# ─────────────── Adaptador K-NN (clasificación clásico) ───────────────
 def _knn_init(mod):
     modelo = mod.KNNModelo(k=3)
-    # Estado de simulación
     return {
         "modelo": modelo,
         "ultima_pred": None,           # {"x":..,"y":..,"label":..,"vecinos":[(i,dist),...]}
         "mostrar_vecinos": True,
-        "colores": {                   # colores por clase (UI)
-            "A": "#22c55e", "B": "#ef4444", "C": "#f59e0b", "D": "#3b82f6"
-        }
+        "colores": { "A": "#22c55e", "B": "#ef4444", "C": "#f59e0b", "D": "#3b82f6" }
     }
 
 def _knn_view(state):
@@ -746,7 +646,6 @@ def _knn_step(state, action: str, mod):
         return state
     if action.startswith("random:"):
         n = int(action.split(":")[1])
-        # usa clases existentes o A/B por defecto
         clases = sorted(list(m.clases)) or ["A", "B"]
         m.aleatorios(n, clases=tuple(clases))
         return state
@@ -762,33 +661,32 @@ def _knn_step(state, action: str, mod):
         }
         return state
     return state
-# ---------------- Adaptador KNN (regresion) ----------------
-import os, json
-from flask import request, jsonify, render_template
-from importlib.machinery import SourceFileLoader
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ---------------- Adaptador KNN (regresión) ----------------
+from pathlib import Path as _Path
 
-# Intentamos varias rutas/nombres comunes
-_KNN_CANDIDATES = [os.path.join(BASE_DIR, "algos/knn-regression.py"),]
+BASE_DIR = Path(__file__).resolve().parent
+_KNN_CANDIDATES = [
+    BASE_DIR / "algos" / "knn-regression.py",
+    _Path("algos/knn-regression.py"),
+    _Path("knn-regression.py"),
+]
 _KNN_LOADED = {"mod": None, "path": None}
-_KNN_STATE = {"model": None, "csv": None, "k": 3}
 
 def _load_knn_module():
-    """Carga perezosa del módulo de KNN desde el primer path existente."""
+    """Carga perezosa del módulo de KNN regresión usando el loader genérico ya definido arriba."""
     if _KNN_LOADED["mod"]:
         return _KNN_LOADED["mod"]
 
     for p in _KNN_CANDIDATES:
-        if os.path.exists(p):
-            mod = SourceFileLoader("mod_knn_regression_py", p).load_module()
-            _KNN_LOADED["mod"] = mod
-            _KNN_LOADED["path"] = p
+        if p.exists():
+            mod = load_module_by_path(p, "mod_knn_regression_py")
+            _KNN_LOADED.update({"mod": mod, "path": str(p)})
             return mod
 
     raise FileNotFoundError(
-        "No encontré el archivo de lógica KNN. Coloca 'knn-regression.py' "
-        "junto a app.py o ajusta las rutas del cargador."
+        "No encontré 'algos/knn-regression.py'. "
+        "Colócalo en /algos o ajusta las rutas en _KNN_CANDIDATES."
     )
 
 @app.get("/algo/knn-regression.py")
@@ -803,48 +701,36 @@ def knn_regression_train():
         return jsonify({"ok": False, "error": str(e)}), 400
 
     data = request.get_json(silent=True) or {}
-    ruta_csv = data.get("csv") or os.path.join(BASE_DIR, "carros.csv")
+    ruta_csv = data.get("csv") or str(BASE_DIR / "carros.csv")
     k = int(data.get("k") or 3)
 
-    if not os.path.exists(ruta_csv):
-        return jsonify({"ok": False, "error": f"No encontré {ruta_csv}"}), 400
-
-    modelo = KNN_MOD.KNNRegresionCarros(n_vecinos=k, ponderado=True)
-    try:
-        modelo.entrenar(ruta_csv, n_vecinos=k)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
-
-    _KNN_STATE.update({"model": modelo, "csv": ruta_csv, "k": k})
-    return jsonify({"ok": True, "csv": os.path.basename(ruta_csv), "k": k})
+    # Delegar al módulo lógico
+    res = KNN_MOD.train(csv=ruta_csv, k=k)
+    return (jsonify(res), 200) if res.get("ok") else (jsonify(res), 400)
 
 @app.get("/algo/knn-regression.py/predict")
 def knn_regression_predict():
-    modelo = _KNN_STATE.get("model")
-    if not modelo:
-        return jsonify({"ok": False, "error": "Primero entrena el modelo."}), 400
-
     try:
-        kms = float(request.args.get("kms", "20000"))
-        precio = modelo.predecir_precio(kms)
-        return jsonify({"ok": True, "kms": kms, "precio": precio})
-    except Exception as e:
+        KNN_MOD = _load_knn_module()
+    except FileNotFoundError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+
+    kms = float(request.args.get("kms", "20000"))
+    res = KNN_MOD.predict(kms)
+    return (jsonify(res), 200) if res.get("ok") else (jsonify(res), 400)
 
 @app.get("/algo/knn-regression.py/curve")
 def knn_regression_curve():
-    modelo = _KNN_STATE.get("model")
-    if not modelo:
-        return jsonify({"ok": False, "error": "Primero entrena el modelo."}), 400
-
     try:
-        max_kms = int(request.args.get("max_kms", "140000"))
-        paso = int(request.args.get("paso", "1000"))
-        xs, ys = modelo.curva_predicha(max_kms=max_kms, paso=paso)
-        return jsonify({"ok": True, "xs": xs, "ys": ys})
-    except Exception as e:
+        KNN_MOD = _load_knn_module()
+    except FileNotFoundError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
-            
+
+    max_kms = int(request.args.get("max_kms", "140000"))
+    paso = int(request.args.get("paso", "1000"))
+    res = KNN_MOD.curve(max_kms=max_kms, paso=paso)
+    return (jsonify(res), 200) if res.get("ok") else (jsonify(res), 400)
+
 # ----------------------------------------------------- Inicialización por archivo ------------------------------------------------
 def init_for(algo_name: str):
     path = _algo_find(algo_name)
@@ -861,7 +747,8 @@ def init_for(algo_name: str):
     if name == "knn-algorithm.py":
         return ("knn", mod, _knn_init(mod), "K-NN (k-vecinos más cercanos)")
     if name == "knn-regression.py":
-        return ("knnreg", mod, _knnreg_init(mod), "K-NN Regresión (k-vecinos más cercanos)")
+        # En esta app, la UI va por endpoints dedicados; tratamos como "static"
+        return ("static", mod, {}, "K-NN Regresión (k-vecinos más cercanos)")
     return ("static", mod, {}, f"{name}")
 
 def view_for(algo_name: str, mod, state):
@@ -871,7 +758,7 @@ def view_for(algo_name: str, mod, state):
     if name == "wumpus-algorithm.py": return _wumpus_view(state)
     if name == "markov-algorithm.py": return _markov_view(state)
     if name == "knn-algorithm.py": return _knn_view(state)
-    if name == "knn-regression.py": return _knnreg_view(state)
+    if name == "knn-regression.py": return {}
     return {}
 
 def step_for(algo_name: str, mod, state, action):
@@ -880,7 +767,7 @@ def step_for(algo_name: str, mod, state, action):
     if name == "a-algorithm.py": return _astar_step(state, action, mod)
     if name == "wumpus-algorithm.py": return _wumpus_step(state, action, mod)
     if name == "markov-algorithm.py": return _markov_step(state, action, mod)
-    if name == "knn-regression.py": return _knnreg_step(state, action, mod)
+    if name == "knn-regression.py": return state
     return state
 
 # ---------------- Portada desde docs/ ----------------

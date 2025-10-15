@@ -2,188 +2,293 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>KNN Regresión (kms → precio)</title>
+  <title>KNN Regresión — kms ➜ precio</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Chart.js para las gráficas -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
-    :root { --green:#16a34a; --red:#dc2626; --gray:#e5e7eb; --ink:#111827; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial; margin: 0; background:#fff; color:var(--ink); }
-    header { padding: 16px 20px; border-bottom: 1px solid var(--gray); }
-    .wrap { max-width: 980px; margin: 0 auto; padding: 20px; }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
-    .field { display:flex; flex-direction:column; gap:6px; }
-    .field label { font-size:12px; color:#374151; }
-    input[type="number"], input[type="text"] {
-      padding: 10px 12px; border: 1px solid var(--gray); border-radius: 8px; min-width: 140px;
+    :root {
+      --bg:#0f1220; --panel:#161a2b; --muted:#9aa4b2; --text:#e6ecf3;
+      --accent:#7c3aed; --green:#16a34a; --red:#dc2626; --yellow:#f59e0b;
     }
-    button { padding: 10px 14px; border-radius: 10px; border: 0; cursor: pointer; font-weight: 600; }
-    .primary { background: var(--green); color: #fff; }
-    .danger  { background: var(--red); color: #fff; }
-    .secondary { background:#111827; color:#fff; }
-    .muted { font-size:12px; color:#6b7280; }
-    canvas { background: #fff; border:1px solid var(--gray); border-radius: 12px; }
-    .bar { height:10px; width:100%; background:var(--gray); border-radius:6px; overflow:hidden; }
-    .bar > div { height:100%; width:0%; background: linear-gradient(90deg,#60a5fa,#34d399); transition:width .3s; }
+    html,body{height:100%; background:var(--bg); color:var(--text); font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto; margin:0}
+    .wrap{max-width:1100px; margin:40px auto; padding:0 16px}
+    .card{background:var(--panel); border:1px solid rgba(255,255,255,.06); border-radius:16px; padding:16px}
+    .row{display:grid; grid-template-columns:1fr; gap:16px}
+    @media(min-width:900px){ .row{grid-template-columns: 380px 1fr} }
+    h1{font-weight:700; letter-spacing:.2px; margin:0 0 8px}
+    .muted{color:var(--muted); font-size:14px}
+    label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+    input,select{
+      width:100%; background:#0e1220; color:var(--text); border:1px solid rgba(255,255,255,.12);
+      border-radius:10px; padding:10px 12px; outline:none;
+    }
+    input:focus{border-color:var(--accent)}
+    .btn{
+      display:inline-flex; align-items:center; gap:8px; border:none; border-radius:12px; padding:10px 14px;
+      color:white; cursor:pointer; font-weight:600;
+    }
+    .btn:disabled{opacity:.6; cursor:not-allowed}
+    .btn-green{background:var(--green)}
+    .btn-blue{background:var(--accent)}
+    .btn-red{background:var(--red)}
+    .btn-ghost{background:transparent; border:1px solid rgba(255,255,255,.15); color:var(--text)}
+    .stack{display:flex; flex-wrap:wrap; gap:10px}
+    .divider{height:1px; background:rgba(255,255,255,.08); margin:10px 0 16px}
+    .pill{font-size:12px; color:var(--muted); background:#0e1220; border:1px solid rgba(255,255,255,.08); padding:6px 10px; border-radius:999px}
+    .status{font-size:13px}
+    .badge{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; font-size:12px}
+    .ok{background:rgba(22,163,74,.15); color:#86efac; border:1px solid rgba(22,163,74,.35)}
+    .warn{background:rgba(245,158,11,.12); color:#fde68a; border:1px solid rgba(245,158,11,.3)}
+    .err{background:rgba(220,38,38,.15); color:#fecaca; border:1px solid rgba(220,38,38,.35)}
+    .footer{color:var(--muted); font-size:12px; margin-top:14px}
+    .num{font-variant-numeric:tabular-nums}
   </style>
 </head>
 <body>
-<header>
   <div class="wrap">
-    <h2>KNN Regresión (kms → precio)</h2>
-    <div class="muted">Usa tu <code>carros.csv</code>, entrena y grafica la curva estimada.</div>
+    <h1>KNN Regresión <span class="muted">• kms → precio</span></h1>
+    <div class="row">
+      <!-- Panel izquierdo: controles -->
+      <div class="card">
+        <div>
+          <label>Ruta CSV (por defecto: <code>carros.csv</code> junto a <code>app.py</code>)</label>
+          <input id="csv" placeholder="carros.csv" value="carros.csv" />
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px">
+          <div>
+            <label>k (vecinos)</label>
+            <input id="k" type="number" min="1" step="1" value="3" />
+          </div>
+          <div>
+            <label>kms para predecir</label>
+            <input id="kms" type="number" min="0" step="1000" value="20000" />
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="stack">
+          <button id="btn-train" class="btn btn-green">Entrenar</button>
+          <button id="btn-curve" class="btn btn-blue">Generar curva</button>
+          <button id="btn-stop"  class="btn btn-red">Detener</button>
+          <button id="btn-predict" class="btn btn-ghost">Predecir precio</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="status">
+          <span id="state-badge" class="badge warn">Listo para entrenar</span>
+          <div id="msg" class="footer"></div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="pill">Tips:
+          <ul style="margin:6px 0 0 18px; padding:0">
+            <li>Asegúrate que el CSV tenga columnas <code>kms</code> y <code>precio</code>.</li>
+            <li>Primero pulsa <b>Entrenar</b>. Luego puedes <b>Generar curva</b> o <b>Predecir</b>.</li>
+            <li>La curva se dibuja de forma animada. Usa <b>Detener</b> para parar la animación.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Panel derecho: gráfico -->
+      <div class="card">
+        <canvas id="chart" height="360"></canvas>
+        <div class="footer">
+          <span>Curva KNN y puntos crudos (una vez entrenado).</span>
+        </div>
+      </div>
+    </div>
   </div>
-</header>
 
-<div class="wrap">
-  <section class="row" style="margin-bottom:14px;">
-    <div class="field">
-      <label>CSV (ruta)</label>
-      <input id="csv" type="text" value="carros.csv" />
-    </div>
-    <div class="field">
-      <label>k (vecinos)</label>
-      <input id="k" type="number" value="3" min="1" step="1" />
-    </div>
-    <div class="field">
-      <label>&nbsp;</label>
-      <button class="primary" id="btn-train">Entrenar</button>
-    </div>
-    <div class="field">
-      <label>&nbsp;</label>
-      <button class="danger" id="btn-reset">Detener / Reset</button>
-    </div>
-  </section>
+  <script>
+    // ---------------------- Estado UI ----------------------
+    const el = (id) => document.getElementById(id);
+    const btnTrain   = el('btn-train');
+    const btnCurve   = el('btn-curve');
+    const btnStop    = el('btn-stop');
+    const btnPredict = el('btn-predict');
+    const inputCSV   = el('csv');
+    const inputK     = el('k');
+    const inputKms   = el('kms');
+    const badge      = el('state-badge');
+    const msg        = el('msg');
 
-  <section class="row" style="margin-bottom:14px;">
-    <div class="field">
-      <label>Max kms</label>
-      <input id="maxkms" type="number" value="140000" min="1000" step="1000" />
-    </div>
-    <div class="field">
-      <label>Paso</label>
-      <input id="paso" type="number" value="1000" min="1" step="1" />
-    </div>
-    <div class="field">
-      <label>&nbsp;</label>
-      <button class="secondary" id="btn-curve">Generar curva</button>
-    </div>
-  </section>
+    let anim = { running:false, timer:null, idx:0, xs:[], ys:[] };
 
-  <section class="row" style="margin-bottom:16px;">
-    <div class="field">
-      <label>kms para predecir</label>
-      <input id="kms" type="number" value="20000" min="0" step="500" />
-    </div>
-    <div class="field">
-      <label>&nbsp;</label>
-      <button id="btn-predict">Predecir precio</button>
-    </div>
-    <div class="field">
-      <label>Resultado</label>
-      <div id="out" class="muted">—</div>
-    </div>
-  </section>
-
-  <div class="bar" style="margin:10px 0 18px;"><div id="prog"></div></div>
-
-  <canvas id="chart" height="280"></canvas>
-</div>
-
-<script>
-const $ = (s)=>document.querySelector(s);
-const prog = $("#prog");
-
-let chart;
-function ensureChart() {
-  const ctx = document.getElementById('chart').getContext('2d');
-  if (chart) return chart;
-  chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: 'Curva KNN (precio estimado)',
-          data: [],
-          borderWidth: 2,
-          tension: 0.25
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      scales: {
-        x: { title: { display: true, text: 'Kms' } },
-        y: { title: { display: true, text: 'Precio ($)' }, ticks: { callback: v => '$' + v.toLocaleString() } }
+    // ---------------------- Chart.js -----------------------
+    const ctx = document.getElementById('chart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { // Curva predicha (se anima)
+            label: 'Curva KNN',
+            data: [],
+            borderWidth: 3,
+            tension: 0.15
+          },
+          { // Puntos originales (se cargan al entrenar desde /curve? no, solo puntos al curve no vienen)
+            label: 'Puntos crudos',
+            data: [], // los cargaremos al pedir la curva, rehaciendo todo para simplificar
+            type: 'scatter',
+            pointRadius: 3,
+            borderWidth: 0
+          }
+        ]
       },
-      plugins: { legend: { display: true } }
+      options: {
+        scales: {
+          x: { title: { text:'Kms', display:true }, ticks:{ color:'#c7d2fe' }, grid:{ color:'rgba(255,255,255,.06)'} },
+          y: { title: { text:'Precio ($)', display:true }, ticks:{ color:'#c7d2fe' }, grid:{ color:'rgba(255,255,255,.06)'} }
+        },
+        plugins: {
+          legend: { labels:{ color:'#e6ecf3' } }
+        }
+      }
+    });
+
+    function setBadge(type, text){
+      badge.className = 'badge ' + (type==='ok'?'ok':type==='err'?'err':'warn');
+      badge.textContent = text;
     }
-  });
-  return chart;
-}
+    function setMsg(text){ msg.textContent = text || ''; }
 
-async function postJSON(url, body) {
-  prog.style.width = '25%';
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body||{})
-  });
-  prog.style.width = '60%';
-  const j = await res.json();
-  prog.style.width = '100%';
-  setTimeout(()=>prog.style.width='0%', 400);
-  return j;
-}
-async function getJSON(url) {
-  prog.style.width = '25%';
-  const res = await fetch(url);
-  prog.style.width = '60%';
-  const j = await res.json();
-  prog.style.width = '100%';
-  setTimeout(()=>prog.style.width='0%', 400);
-  return j;
-}
+    // ---------------------- Llamadas API -------------------
+    async function apiTrain(){
+      stopAnim();
+      setBadge('warn','Entrenando…');
+      setMsg('');
+      toggleBusy(true);
+      try{
+        const body = {
+          csv: inputCSV.value.trim() || 'carros.csv',
+          k: parseInt(inputK.value || '3', 10)
+        };
+        const r = await fetch('/algo/knn-regression.py/train', {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+        });
+        const j = await r.json();
+        if(!j.ok) throw new Error(j.error || 'Error al entrenar');
+        setBadge('ok', `Modelo entrenado (k=${j.k}, csv=${j.csv})`);
+        setMsg('Ahora puedes generar la curva o predecir un precio.');
+        // limpiar gráfico
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.data.datasets[1].data = [];
+        chart.update();
+      }catch(e){
+        setBadge('err','Error al entrenar');
+        setMsg(e.message || e);
+      }finally{
+        toggleBusy(false);
+      }
+    }
 
-// Entrenar
-$("#btn-train").addEventListener('click', async ()=>{
-  const csv = $("#csv").value.trim() || "carros.csv";
-  const k = parseInt($("#k").value || '3', 10);
-  const r = await postJSON('/algo/knn-regression.py/train', { csv, k });
-  if (!r.ok) { alert(r.error || 'Error al entrenar'); return; }
-  alert(`Modelo entrenado\nCSV: ${r.csv}\nk: ${r.k}`);
-});
+    async function apiCurve(){
+      stopAnim();
+      setBadge('warn','Obteniendo curva…');
+      setMsg('');
+      toggleBusy(true);
+      try{
+        // Traemos la curva. Para puntos crudos no tenemos endpoint; la curva es suficiente.
+        // (Si quieres puntos crudos desde el backend, se puede añadir un endpoint /points)
+        const params = new URLSearchParams({ max_kms:'140000', paso:'1000' });
+        const r = await fetch('/algo/knn-regression.py/curve?'+params);
+        const j = await r.json();
+        if(!j.ok) throw new Error(j.error || 'Error al generar curva');
 
-// Curva
-$("#btn-curve").addEventListener('click', async ()=>{
-  const maxkms = parseInt($("#maxkms").value || '140000', 10);
-  const paso = parseInt($("#paso").value || '1000', 10);
-  const r = await getJSON(`/algo/knn-regression.py/curve?max_kms=${maxkms}&paso=${paso}`);
-  if (!r.ok) { alert(r.error || 'Primero entrena el modelo'); return; }
+        // Cargamos arrays completos, pero animamos el añadido punto por punto
+        anim.xs = j.xs || [];
+        anim.ys = j.ys || [];
+        anim.idx = 0;
 
-  const ch = ensureChart();
-  ch.data.labels = r.xs;
-  ch.data.datasets[0].data = r.ys;
-  ch.update();
-});
+        // reset gráfico
+        chart.data.labels = [];
+        chart.data.datasets[0].data = []; // curva
+        // mantenemos dataset[1] para puntos crudos (no los recibimos aquí)
+        chart.update();
 
-// Predecir
-$("#btn-predict").addEventListener('click', async ()=>{
-  const kms = parseFloat($("#kms").value || '20000');
-  const r = await getJSON(`/algo/knn-regression.py/predict?kms=${kms}`);
-  if (!r.ok) { alert(r.error || 'Primero entrena el modelo'); return; }
-  $("#out").textContent = `$ ${r.precio.toLocaleString(undefined,{maximumFractionDigits:0})}`;
-});
+        setBadge('ok','Curva lista — animando…');
+        startAnim();
+      }catch(e){
+        setBadge('err','Error al generar curva');
+        setMsg(e.message || e);
+      }finally{
+        toggleBusy(false);
+      }
+    }
 
-// Reset (simple: limpia la gráfica)
-$("#btn-reset").addEventListener('click', ()=>{
-  if (!chart) return;
-  chart.data.labels = [];
-  chart.data.datasets[0].data = [];
-  chart.update();
-  $("#out").textContent = '—';
-});
-</script>
+    async function apiPredict(){
+      stopAnim();
+      setMsg('');
+      try{
+        const kms = parseFloat(inputKms.value || '20000');
+        const r = await fetch('/algo/knn-regression.py/predict?kms='+encodeURIComponent(kms));
+        const j = await r.json();
+        if(!j.ok) throw new Error(j.error || 'No se pudo predecir');
+        setBadge('ok', 'Predicción lista');
+        setMsg(`Precio estimado para ${kms.toLocaleString()} kms: $ ${j.precio.toLocaleString(undefined,{maximumFractionDigits:0})}`);
+        // Marcamos el punto predicho en el gráfico como un “highlight” temporal:
+        addHighlight(kms, j.precio);
+      }catch(e){
+        setBadge('err','Error al predecir');
+        setMsg(e.message || e);
+      }
+    }
+
+    // ---------------------- Animación de la curva -------------------
+    function startAnim(){
+      if(anim.running || !anim.xs.length) return;
+      anim.running = true;
+      step();
+    }
+    function stopAnim(){
+      anim.running = false;
+      if(anim.timer){ clearTimeout(anim.timer); anim.timer = null; }
+    }
+    function step(){
+      if(!anim.running) return;
+      // añadir 100 puntos por “tick” para que se vea fluido (ajusta si quieres más lento/rápido)
+      const CHUNK = 100;
+      const end = Math.min(anim.idx + CHUNK, anim.xs.length);
+      for(let i=anim.idx; i<end; i++){
+        chart.data.labels.push(anim.xs[i]);
+        chart.data.datasets[0].data.push(anim.ys[i]);
+      }
+      anim.idx = end;
+      chart.update('none'); // sin animaciones internas de chart.js para mayor control
+      if(anim.idx >= anim.xs.length){
+        stopAnim();
+        setBadge('ok','Curva completa');
+        return;
+      }
+      anim.timer = setTimeout(step, 16); // ~60fps
+    }
+
+    function addHighlight(x, y){
+      // Añadimos un pequeño punto al dataset de puntos crudos para mostrar la predicción
+      chart.data.datasets[1].data.push({x, y});
+      chart.update();
+    }
+
+    function toggleBusy(b){
+      btnTrain.disabled = b;
+      btnCurve.disabled = b;
+      btnPredict.disabled = b;
+    }
+
+    // ---------------------- Eventos UI -------------------
+    btnTrain.addEventListener('click', apiTrain);
+    btnCurve.addEventListener('click', apiCurve);
+    btnPredict.addEventListener('click', apiPredict);
+    btnStop.addEventListener('click', stopAnim);
+
+    // Estado inicial
+    setBadge('warn','Listo para entrenar');
+  </script>
 </body>
 </html>
