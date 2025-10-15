@@ -63,3 +63,4 @@ El archivo contiene `if __name__ == "__main__"` para que la ejecución CLI no se
 =======
 - Peticiones a `/api/*` fallan: abrir DevTools del navegador y revisar la pestaña Network y la consola; también vigila la salida de la terminal del servidor.
 >>>>>>> c153a6bd1b84f03823db6cb20dbf26d49d4da375
+- Problemas con dependencias: revisa que `pip list` muestre las versiones correctas según `requirements.txt`.

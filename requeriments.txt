@@ -1,0 +1,21 @@
+# Requerimientos para el proyecto Inteligencia Artificial
+# Autor: Laura Herrera
+
+# Framework principal
+Flask==3.0.3
+
+# Librerías de ciencia de datos y ML
+numpy==1.26.4
+pandas==2.2.3
+scikit-learn==1.5.2
+matplotlib==3.9.2
+
+# Utilidades y compatibilidad
+requests==2.32.3
+seaborn==0.13.2
+
+# Seguridad / entorno
+python-dotenv==1.0.1
+
+# Opcional (si usas algoritmos o procesamiento adicional)
+networkx==3.3
