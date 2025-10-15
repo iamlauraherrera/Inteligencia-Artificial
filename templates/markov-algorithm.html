@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Markov (n-gramas) — Simulación</title>
+<style>
+:root { font-family: system-ui, -apple-system, Segoe UI, Roboto; }
+body { margin:0; background:#0f172a; color:#e5e7eb; }
+header{ padding:12px 16px; background:#111827; border-bottom:1px solid #1f2937; }
+h1{ margin:0; font-size:1.05rem; color:#fafafa; }
+.wrap{ max-width:1200px; margin:16px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 500px; gap:14px; }
+.card{ background:#111827; border:1px solid #1f2937; border-radius:12px; padding:12px; }
+.title{ font-weight:600; margin:12px 0 6px; color:#fafafa; }
+.row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.btn{ background:#2563eb; border:1px solid #2563eb; color:#e5e7eb; border-radius:10px; padding:8px 12px; cursor:pointer; }
+.btn.s{ background:#374151; border-color:#374151; }
+.btn.warn{ background:#ef4444; border-color:#ef4444; }
+.btn.ok{ background:#16a34a; border-color:#16a34a; }
+.small{ color:#9ca3af; font-size:.9rem; }
+.stat{ font-family: ui-monospace, Menlo, monospace; font-size:.95rem; color:#cbd5e1; }
+textarea{ width:100%; min-height:200px; resize:vertical; border-radius:10px; border:1px solid #1f2937; background:#0b101d; color:#e5e7eb; padding:10px; }
+input[type="number"], input[type="text"], select { background:#0b101d; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; padding:6px 8px; }
+.table{ width:100%; border-collapse:collapse; margin-top:8px; }
+.table th,.table td{ border-bottom:1px dashed #253046; padding:6px 8px; text-align:left; font-size:.92rem; }
+.highlight{ color:#93c5fd; }
+details{ border:1px solid #1f2937; border-radius:10px; padding:8px; background:#0b101d; }
+details summary{ cursor:pointer; color:#cbd5e1; }
+pre{ white-space:pre-wrap; max-height:220px; overflow:auto; margin:6px 0 0; }
+.section{ border:1px solid #1f2937; border-radius:10px; padding:10px; background:#0b101d; }
+.kpi{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.badge{ display:inline-flex; gap:6px; border:1px solid #374151; background:#1f2937; padding:2px 8px; border-radius:999px; font-size:.86rem; }
+.sep{ height:1px; background:#1f2937; margin:10px 0; }
+</style>
+</head>
+<body>
+<header><h1>Markov (n-gramas) — Simulación</h1></header>
+
+<div class="wrap">
+  <!-- Panel IZQUIERDO -->
+  <div class="card">
+    <div class="title">Corpus</div>
+    <textarea id="corpus" placeholder="Pega aquí tu texto o usa 'Cargar desde URL'"></textarea>
+
+    <div class="title">Cargar desde URL</div>
+    <div class="row">
+      <input id="url" type="text"
+             value="https://www.gutenberg.org/ebooks/"
+             placeholder="https://www.gutenberg.org/ebooks/2000  (o)  https://www.gutenberg.org/ebooks/2000.txt.utf-8"
+             style="flex:1; min-width:260px">
+      <button class="btn" id="loadUrl">Cargar URL</button>
+    </div>
+    <div class="small" id="licInfo" style="margin-top:6px">Licencia: —</div>
+    <details id="licBox" style="margin-top:6px">
+      <summary>Ver licencia detectada</summary>
+      <pre id="licText"></pre>
+    </details>
+
+    <div class="title">Configuración</div>
+    <div class="row">
+      <label class="small">Orden:
+        <select id="orden">
+          <option value="1">1 (Unigrama)</option>
+          <option value="2" selected>2 (Bigramas)</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </label>
+      <label class="small">Top-N:
+        <input id="topn" type="number" min="1" max="50" value="12" style="width:80px">
+      </label>
+      <label class="small">Vel. Auto / Generar (ms):
+        <input id="speed" type="number" min="50" step="50" value="200" style="width:110px">
+      </label>
+    </div>
+
+    <div class="row">
+      <label class="small">Semilla:
+        <input id="seed" type="number" placeholder="(opcional)" style="width:120px">
+      </label>
+      <label class="small">Estado inicial (k tokens):
+        <input id="start" type="text" placeholder="<START> <START>" style="width:260px">
+      </label>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="train">Entrenar</button>
+      <button class="btn ok" id="btnStartGlobal">Iniciar (Generar N)</button>
+      <button class="btn warn" id="btnStopAll">Detener todo</button>
+      <button class="btn s" id="apply">Aplicar Config</button>
+      <button class="btn s" id="reset">Reset</button>
+      <a class="btn s" href="/">Volver</a>
+    </div>
+
+    <div class="small" style="margin-top:6px">
+      Tip: en Gutenberg usa “Plain Text UTF-8”. La licencia se mantiene visible aquí.
+    </div>
+  </div>
+
+  <!-- Panel DERECHO -->
+  <div class="card">
+    <!-- ESTADO -->
+    <div class="title">Estado</div>
+    <div class="stat">Estado actual (k tokens): <span id="estado" class="highlight"></span></div>
+    <div class="kpi">
+      <span class="badge" id="kpiVocab">Vocab=0</span>
+      <span class="badge" id="kpiEstados">Estados=0</span>
+      <span class="badge" id="kpiTrans">TransicionesExceeded=0</span>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- SECCIÓN MANUAL -->
+    <div class="section">
+      <div class="title" style="margin:0 0 6px">Control manual</div>
+      <div class="row">
+        <button class="btn s" id="btnPaso">Paso (1 palabra)</button>
+        <button class="btn"   id="btnAutoPlay">Auto ▶</button>
+        <button class="btn s" id="btnAutoPause">Auto ⏸</button>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- SECCIÓN GENERAR N -->
+    <div class="section">
+      <div class="title" style="margin:0 0 6px">Generar N (palabra por palabra)</div>
+      <div class="row">
+        <label class="small">N:
+          <input id="genlen" type="number" min="1" max="400" value="40" style="width:90px">
+        </label>
+        <button class="btn"   id="btnGenPlay">▶ Generar</button>
+        <button class="btn s" id="btnGenPause">⏸ Pausa</button>
+        <span class="small" id="genProg">(0 / 0)</span>
+      </div>
+    </div>
+
+    <div class="title">Distribución próxima palabra</div>
+    <table class="table" id="dist">
+      <thead><tr><th>Palabra</th><th>Prob.</th><th>Conteo</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="title">Texto generado</div>
+    <div id="out" class="stat" style="min-height:60px"></div>
+  </div>
+</div>
+
+<script>
+const name="markov-algorithm.py";
+const ta = document.getElementById('corpus');
+const sel = document.getElementById('orden');
+const out = document.getElementById('out');
+const est = document.getElementById('estado');
+const distTbl = document.getElementById('dist').querySelector('tbody');
+const topnEl = document.getElementById('topn');
+const speedEl = document.getElementById('speed');
+const seedEl = document.getElementById('seed');
+const startEl= document.getElementById('start');
+const genlenEl=document.getElementById('genlen');
+const urlEl = document.getElementById('url');
+const licInfo = document.getElementById('licInfo');
+const licBox  = document.getElementById('licBox');
+const licText = document.getElementById('licText');
+const loadBtn = document.getElementById('loadUrl');
+
+const kpiV = document.getElementById('kpiVocab');
+const kpiE = document.getElementById('kpiEstados');
+const kpiT = document.getElementById('kpiTrans');
+
+// Manual
+const btnPaso = document.getElementById('btnPaso');
+const btnAutoPlay = document.getElementById('btnAutoPlay');
+const btnAutoPause= document.getElementById('btnAutoPause');
+
+// Global (config)
+const btnStartGlobal = document.getElementById('btnStartGlobal');
+const btnStopAll = document.getElementById('btnStopAll');
+
+// Generar N
+const btnGenPlay = document.getElementById('btnGenPlay');
+const btnGenPause= document.getElementById('btnGenPause');
+const genProg = document.getElementById('genProg');
+
+let autoTimer=null, autospeed=200;
+let genTimer=null, genRemaining=0, genTotal=0;
+
+async function j(u,o={}){const r=await fetch(u,o);return r.json();}
+async function getS(){return j(`/api/${name}/state`);}
+async function act(a){return j(`/api/${name}/act`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a})});}
+
+function render(estado){
+  if (typeof estado.corpus === 'string') ta.value = estado.corpus;
+  if (typeof estado.orden === 'number') sel.value = String(estado.orden);
+  if (typeof estado.topn === 'number') topnEl.value = String(estado.topn);
+  if (typeof estado.autospeed === 'number') { autospeed = estado.autospeed; speedEl.value = String(autospeed); }
+
+  est.textContent = '[' + (estado.estado_actual||[]).join(' ') + ']';
+  out.textContent = (estado.generado||[]).join(' ');
+
+  kpiV.textContent = `Vocab=${estado.vocab||0}`;
+  kpiE.textContent = `Estados=${estado.estados||0}`;
+  kpiT.textContent = `Transiciones=${estado.transiciones||0}`;
+
+  distTbl.innerHTML='';
+  const dist = estado.distribucion||[];
+  dist.forEach(row=>{
+    const tr=document.createElement('tr');
+    const tdw=document.createElement('td'); tdw.textContent=row[0];
+    const tdp=document.createElement('td'); tdp.textContent=row[1].toFixed(4);
+    const tdc=document.createElement('td'); tdc.textContent=row[2];
+    tr.appendChild(tdw); tr.appendChild(tdp); tr.appendChild(tdc);
+    distTbl.appendChild(tr);
+  });
+
+  genProg.textContent = `(${genTotal-genRemaining} / ${genTotal})`;
+}
+
+async function update(){ const {estado}=await getS(); render(estado||{}); }
+
+// ------- helpers globales -------
+function stopAll(){
+  if(autoTimer){ clearInterval(autoTimer); autoTimer=null; }
+  if(genTimer){ clearInterval(genTimer); genTimer=null; }
+  genRemaining=0; genTotal=0; genProg.textContent="(0 / 0)";
+}
+
+function startGenerateN(n){
+  stopAll(); // asegura que no quede nada corriendo
+  genTotal = n; genRemaining = n;
+  genProg.textContent = `(${genTotal-genRemaining} / ${genTotal})`;
+  const tick = async ()=>{
+    if(genRemaining<=0){ stopAll(); return; }
+    await act('step'); // 1 palabra
+    genRemaining--;
+    update();
+    if(genRemaining>0){ genTimer = setTimeout(tick, Math.max(50, parseInt(speedEl.value||'200',10))); }
+    else { stopAll(); }
+  };
+  tick();
+}
+
+// ------- Entrenar / Config -------
+document.getElementById('train').onclick = async ()=>{
+  const texto = encodeURIComponent(ta.value || '');
+  const ord = parseInt(sel.value,10);
+  await act(`set_order:${ord}`);
+  await act(`set_corpus:${texto}`);
+  await act('train');
+  update();
+};
+
+document.getElementById('apply').onclick = async ()=>{
+  const t = Math.max(1, Math.min(50, parseInt(topnEl.value||'12',10)));
+  const sp= Math.max(50, parseInt(speedEl.value||'200',10));
+  await act(`set_topn:${t}`);
+  await act(`set_autospeed:${sp}`);
+  if (seedEl.value !== '') {
+    const sd = parseInt(seedEl.value,10);
+    if (!Number.isNaN(sd)) await act(`set_seed:${sd}`);
+  }
+  if (startEl.value.trim()!=='') {
+    const enc = encodeURIComponent(startEl.value.trim());
+    await act(`set_start:${enc}`);
+  }
+  update();
+};
+
+document.getElementById('reset').onclick = async ()=>{
+  stopAll();
+  await act('reset');
+  licInfo.textContent = 'Licencia: —';
+  licText.textContent = '';
+  licBox.open = false;
+  update();
+};
+
+btnStopAll.onclick = ()=> stopAll();
+
+// ------- Control manual -------
+btnPaso.onclick = async ()=>{ await act('step'); update(); };
+btnAutoPlay.onclick = ()=>{
+  stopAll();
+  const loop = async ()=>{
+    if(autoTimer===null) return;
+    await act('step'); update();
+    autoTimer = setTimeout(loop, Math.max(50, parseInt(speedEl.value||'200',10)));
+  };
+  autoTimer = setTimeout(loop, 0);
+};
+btnAutoPause.onclick = ()=>{ if(autoTimer){ clearTimeout(autoTimer); autoTimer=null; } };
+
+// ------- Generar N -------
+btnGenPlay.onclick = ()=>{
+  const n = Math.max(1, parseInt(genlenEl.value||'40',10));
+  if (genRemaining<=0) startGenerateN(n); else startGenerateN(genRemaining);
+};
+btnGenPause.onclick = ()=>{ if(genTimer){ clearTimeout(genTimer); genTimer=null; } };
+
+// ------- Botón global de inicio (verde) -------
+btnStartGlobal.onclick = ()=>{
+  const n = Math.max(1, parseInt(genlenEl.value||'40',10));
+  startGenerateN(n);
+};
+
+// ------- Cargar Gutenberg por proxy -------
+function extraerLicencia(txt){
+  let m = txt.match(/\*\*\*\s*START:\s*FULL LICENSE[\s\S]*?\*\*\*\s*END OF THE PROJECT GUTENBERG LICENSE/i);
+  if (m) return m[0];
+  m = txt.match(/THE PROJECT GUTENBERG LICENSE[\s\S]*?END OF (THE )?PROJECT GUTENBERG LICENSE/i);
+  if (m) return m[0];
+  m = txt.match(/(Project Gutenberg[\s\S]{0,1800})/i);
+  if (m) return m[0];
+  return '';
+}
+loadBtn.onclick = async ()=>{
+  const url = (urlEl.value||'').trim();
+  if (!url) { alert('Ingresa una URL (página del libro o TXT UTF-8).'); return; }
+  try{
+    const r = await fetch(`/proxy/text?u=${encodeURIComponent(url)}`);
+    if (!r.ok) { throw new Error(await r.text() || ('HTTP '+r.status)); }
+    const txt = await r.text();
+    const lic = extraerLicencia(txt);
+    const licLines = (lic.match(/\n/g)||[]).length + (lic ? 1:0);
+    const licChars = lic.length;
+    licText.textContent = lic || '(No se detectó un bloque de licencia. Asegúrate de mantener el aviso de Gutenberg si aplica).';
+    licInfo.textContent = lic
+      ? `Licencia: Detectada (líneas=${licLines}, caracteres=${licChars})`
+      : `Licencia: No detectada`;
+
+    const enc = encodeURIComponent(txt);
+    const ord = parseInt(sel.value,10);
+    await act(`set_order:${ord}`);
+    await act(`set_corpus:${enc}`);
+    await act('train');
+    update();
+  }catch(e){
+    alert('Error al cargar: '+e.message);
+  }
+};
+
+// Inicial
+update();
+</script>
+</body>
+</html>

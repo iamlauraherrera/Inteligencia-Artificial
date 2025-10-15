@@ -4,6 +4,11 @@ import os, sys, secrets, importlib.util
 from pathlib import Path
 from typing import Dict, Tuple
 from flask import Flask, render_template, jsonify, request, session, send_from_directory
+# Para cadenas de markov
+import re
+from urllib.parse import urlparse, urlencode, quote, unquote
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
@@ -13,8 +18,8 @@ ALGO_FILES = [
     "algos/minimax-algorithm.py",
     "algos/a-algorithm.py",   
     "algos/knn-algorithm.py",
-    # "algos/markov-algorithm.py",
-    # "algos/wumpus-algorithm.py",
+    "algos/wumpus-algorithm.py",
+    "algos/markov-algorithm.py",
 ]
 
 # ---------------- Utilidades de carga dinámica ----------------
@@ -46,7 +51,85 @@ def _sid() -> str:
         sid = secrets.token_urlsafe(16)
         session["sid"] = sid
     return sid
+# ---------- PROXY GUTENBERG (evita CORS) ----------
+_ALLOWED_NETLOCS = {"www.gutenberg.org", "gutenberg.org"}
 
+def _http_text_get(url: str, timeout: float = 20.0) -> str:
+    """Descarga texto usando urllib (sin dependencias externas)."""
+    req = Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AI-Lab/1.0",
+        "Accept": "text/plain, text/*;q=0.9, */*;q=0.8",
+    })
+    with urlopen(req, timeout=timeout) as r:
+        raw = r.read()
+    # decodificación: intentamos utf-8 y latin-1
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1", errors="replace")
+
+_GUT_TXT_PATTERNS = [
+    re.compile(r'href="([^"]+\.txt\.utf-8)"', re.I),
+    re.compile(r'href="([^"]+pg\d+\.txt)"', re.I),
+    re.compile(r'href="([^"]+/\d+(?:-\d+)?\.txt)"', re.I),
+]
+
+def _resolve_gutenberg_url(user_url: str) -> str:
+    """
+    ejemplo de aceptacion:
+      - Página de libro: https://www.gutenberg.org/ebooks/11335
+      - TXT directo   : https://www.gutenberg.org/ebooks/11335.txt.utf-8
+    Devuelve URL TXT válida. Si .txt.utf-8 falla, busca el enlace 'Plain Text' en la página.
+    """
+    pu = urlparse(user_url)
+    if pu.scheme not in ("http", "https"):
+        raise ValueError("URL no válida (solo http/https)")
+    if pu.netloc not in _ALLOWED_NETLOCS:
+        raise ValueError("Dominio no permitido en proxy (solo gutenberg.org)")
+
+    # Si ya es TXT, devolver tal cual
+    if pu.path.lower().endswith(".txt") or pu.path.lower().endswith(".txt.utf-8"):
+        return user_url
+
+    # Si es índice general /ebooks -> pedimos un libro específico
+    if pu.path.rstrip("/") == "/ebooks":
+        raise ValueError("Abre un libro específico (p. ej. /ebooks/2000).")
+
+    # ¿Coincide /ebooks/<id>?
+    m = re.search(r"/ebooks/(\d+)", pu.path)
+    if not m:
+        # No sé resolver otras rutas
+        return user_url
+
+    book_id = m.group(1)
+    # 1) Primer intento: .txt.utf-8
+    candidate = f"https://www.gutenberg.org/ebooks/{book_id}.txt.utf-8"
+    try:
+        txt = _http_text_get(candidate)
+        # Heurística simple: si parece HTML, no sirve
+        if "<html" in txt.lower():
+            raise ValueError("No es texto plano.")
+        return candidate
+    except Exception:
+        # 2) Fallback: abrir la página del libro y raspar enlace TXT
+        page_url = f"https://www.gutenberg.org/ebooks/{book_id}"
+        html = _http_text_get(page_url)
+        href = None
+        for pat in _GUT_TXT_PATTERNS:
+            m2 = pat.search(html)
+            if m2:
+                href = m2.group(1)
+                break
+        if not href:
+            raise ValueError("No encontré 'Plain Text' para este libro.")
+        # Normalizar href
+        if href.startswith("//"):
+            href = "https:" + href
+        elif href.startswith("/"):
+            href = "https://www.gutenberg.org" + href
+        elif not href.startswith("http"):
+            href = "https://www.gutenberg.org/" + href.lstrip("/")
+        return href
 # ---------------- Estado en memoria por sesión+archivo ----------------
 # { (sid, algo_name) : (ui, mod, state_dict, label) }
 _STORE: Dict[Tuple[str,str], Tuple[str, object, dict, str]] = {}
@@ -398,7 +481,225 @@ def _wumpus_step(state, action: str, mod):
         return state
 
     return state
+# ---------------- Adaptador Markov (n-gramas) ----------------
+from urllib.parse import unquote
 
+def _markov_init(mod):
+    # estado inicial
+    orden = 2
+    corpus = getattr(mod, "ai_corpus", "")
+    Modelo = getattr(mod, "CadenaMarkov")
+    m = Modelo(orden)
+    m.entrenar(corpus)
+    st = {
+        "modelo": m,
+        "orden": orden,
+        "corpus": corpus,
+        "generado": [],
+        "estado": tuple(["<START>"]*orden),
+        "msg": "",
+    }
+    return st
+
+def _markov_view(state):
+    m = state["modelo"]
+    est = state["estado"]
+    dist = m.dist_siguiente(est)
+    # ordenar por prob desc y quedarse con top 12
+    filas = []
+    if dist:
+        # obtener conteos crudos también
+        cnts = m.transiciones.get(est, {})
+        filas = sorted([(w, p, cnts[w]) for w,p in dist.items()], key=lambda t: t[1], reverse=True)[:12]
+    return {
+        "orden": state["orden"],
+        "corpus": state["corpus"],
+        "generado": state["generado"],
+        "estado_actual": list(est),
+        "distribucion": filas,  # [ [palabra, prob, conteo] ]
+        "vocab": len({w for c in m.transiciones.values() for w in c.keys()}),
+        "estados": len(m.estados),
+        "transiciones": sum(sum(c.values()) for c in m.transiciones.values()),
+    }
+
+def _markov_step(state, action: str, mod):
+    m = state["modelo"]
+
+    if action == "reset":
+        state.update(_markov_init(mod))
+        return state
+
+    if action.startswith("set_order:"):
+        k = max(1, int(action.split(":")[1]))
+        state["orden"] = k
+        # re-entrenar con el mismo corpus
+        Modelo = getattr(mod, "CadenaMarkov")
+        m2 = Modelo(k)
+        m2.entrenar(state["corpus"])
+        state["modelo"] = m2
+        state["estado"] = tuple(["<START>"]*k)
+        state["generado"] = []
+        return state
+
+    if action.startswith("set_corpus:"):
+        txt_enc = action.split(":",1)[1]
+        txt = unquote(txt_enc)
+        state["corpus"] = txt
+        return state
+
+    if action == "train":
+        m = getattr(mod, "CadenaMarkov")(state["orden"])
+        m.entrenar(state["corpus"])
+        state["modelo"] = m
+        state["estado"] = tuple(["<START>"]*state["orden"])
+        state["generado"] = []
+        return state
+
+    if action.startswith("gen:"):
+        n = max(1, int(action.split(":")[1]))
+        gen = m.generar(n)
+        state["generado"] = gen
+        # deja el estado en <START>… para nueva simulación
+        state["estado"] = tuple(["<START>"]*state["orden"])
+        return state
+
+    if action == "step":
+        nuevo, tok = m.paso(state["estado"])
+        if tok is None:
+            # no hay transición — reinicia estado
+            state["estado"] = tuple(["<START>"]*state["orden"])
+        elif tok == "<END>":
+            state["estado"] = tuple(["<START>"]*state["orden"])
+        else:
+            state["estado"] = nuevo
+            state["generado"].append(tok)
+        return state
+
+    return state
+# ---------------- Adaptador Markov (n-gramas) ------------------------
+from urllib.parse import unquote
+
+def _markov_init(mod):
+    orden = 2
+    corpus = getattr(mod, "ai_corpus", "")
+    Modelo = getattr(mod, "CadenaMarkov")
+    m = Modelo(orden)
+    m.entrenar(corpus)
+    st = {
+        "modelo": m,
+        "orden": orden,
+        "corpus": corpus,
+        "generado": [],
+        "estado": tuple(["<START>"]*orden),
+        "topn": 12,
+        "autospeed": 200,
+        "seed": None,
+        "msg": "",
+    }
+    return st
+
+def _markov_view(state):
+    m = state["modelo"]
+    est = state["estado"]
+    dist = m.dist_siguiente(est)
+    filas = []
+    if dist:
+        cnts = m.transiciones.get(est, {})
+        topn = int(state.get("topn", 12))
+        filas = sorted([(w, p, cnts[w]) for w,p in dist.items()], key=lambda t: t[1], reverse=True)[:topn]
+    return {
+        "orden": state["orden"],
+        "corpus": state["corpus"],
+        "generado": state["generado"],
+        "estado_actual": list(est),
+        "distribucion": filas,
+        "vocab": len({w for c in m.transiciones.values() for w in c.keys()}),
+        "estados": len(m.estados),
+        "transiciones": sum(sum(c.values()) for c in m.transiciones.values()),
+        "topn": state.get("topn", 12),
+        "autospeed": state.get("autospeed", 200),
+    }
+
+def _markov_step(state, action: str, mod):
+    if action == "reset":
+        state.update(_markov_init(mod))
+        return state
+
+    if action.startswith("set_order:"):
+        k = max(1, int(action.split(":")[1]))
+        state["orden"] = k
+        Modelo = getattr(mod, "CadenaMarkov")
+        m2 = Modelo(k)
+        m2.entrenar(state["corpus"])
+        state["modelo"] = m2
+        state["estado"] = tuple(["<START>"]*k)
+        state["generado"] = []
+        return state
+
+    if action.startswith("set_corpus:"):
+        txt_enc = action.split(":",1)[1]
+        txt = unquote(txt_enc)
+        state["corpus"] = txt
+        return state
+
+    if action == "train":
+        Modelo = getattr(mod, "CadenaMarkov")
+        m = Modelo(state["orden"])
+        m.entrenar(state["corpus"])
+        state["modelo"] = m
+        state["estado"] = tuple(["<START>"]*state["orden"])
+        state["generado"] = []
+        return state
+
+    if action.startswith("gen:"):
+        n = max(1, int(action.split(":")[1]))
+        if state.get("seed") is not None:
+            import random as _r; _r.seed(state["seed"])
+        gen = state["modelo"].generar(n)
+        state["generado"] = gen
+        state["estado"] = tuple(["<START>"]*state["orden"])
+        return state
+
+    if action == "step":
+        if state.get("seed") is not None:
+            import random as _r; _r.seed(state["seed"])
+        nuevo, tok = state["modelo"].paso(state["estado"])
+        if tok is None or tok == "<END>":
+            state["estado"] = tuple(["<START>"]*state["orden"])
+        else:
+            state["estado"] = nuevo
+            state["generado"].append(tok)
+        return state
+
+    if action.startswith("set_topn:"):
+        t = max(1, min(50, int(action.split(":")[1])))
+        state["topn"] = t
+        return state
+
+    if action.startswith("set_autospeed:"):
+        sp = max(50, int(action.split(":")[1]))
+        state["autospeed"] = sp
+        return state
+
+    if action.startswith("set_seed:"):
+        sd = int(action.split(":")[1])
+        state["seed"] = sd
+        return state
+
+    if action.startswith("set_start:"):
+        txt = unquote(action.split(":",1)[1]).strip()
+        toks = [t for t in txt.split() if t]
+        k = state["orden"]
+        if len(toks) < k:
+            toks = (["<START>"]*(k-len(toks))) + toks
+        else:
+            toks = toks[-k:]
+        state["estado"] = tuple(toks)
+        state["generado"] = []
+        return state
+
+    return state
+# ---------------- Adaptador kNN  ------------------------
 
 # ----------------------------------------------------- Inicialización por archivo ------------------------------------------------
 def init_for(algo_name: str):
@@ -411,6 +712,8 @@ def init_for(algo_name: str):
         return ("astar", mod, _astar_init(mod), "Laberinto A* (web)")
     if name == "wumpus-algorithm.py":
         return ("wumpus", mod, _wumpus_init(mod), "Wumpus (probabilístico)")
+    if name == "markov-algorithm.py":
+        return ("markov", mod, _markov_init(mod), "Cadena de Markov (n-gramas)")
     return ("static", mod, {}, f"{name}")
 
 def view_for(algo_name: str, mod, state):
@@ -418,6 +721,7 @@ def view_for(algo_name: str, mod, state):
     if name == "minimax-algorithm.py": return _ttt_view(state)
     if name == "a-algorithm.py": return _astar_view(state)
     if name == "wumpus-algorithm.py": return _wumpus_view(state)
+    if name == "markov-algorithm.py": return _markov_view(state)
     return {}
 
 def step_for(algo_name: str, mod, state, action):
@@ -425,6 +729,7 @@ def step_for(algo_name: str, mod, state, action):
     if name == "minimax-algorithm.py": return _ttt_step(state, action)
     if name == "a-algorithm.py": return _astar_step(state, action, mod)
     if name == "wumpus-algorithm.py": return _wumpus_step(state, action, mod)
+    if name == "markov-algorithm.py": return _markov_step(state, action, mod)
     return state
 
 # ---------------- Portada desde docs/ ----------------
@@ -439,6 +744,30 @@ def root_index():
 @app.route("/docs/<path:filename>")
 def docs_static(filename):
     return send_from_directory("docs", filename)
+
+@app.get("/proxy/text")
+def proxy_text():
+    """
+    Descarga texto desde gutenberg.org evitando CORS del navegador.
+    Parámetro: ?u=<url o página del libro>
+    """
+    u = (request.args.get("u") or "").strip()
+    if not u:
+        return ("Falta parámetro u", 400, {"Content-Type": "text/plain; charset=utf-8"})
+    try:
+        resolved = _resolve_gutenberg_url(u)
+        txt = _http_text_get(resolved)
+        # Heurística: si es HTML, error
+        if "<html" in txt.lower():
+            return ("El recurso recuperado no es texto plano.", 415, {"Content-Type": "text/plain; charset=utf-8"})
+        # Limitar tamaño extremo (opcional): recortar a 2.5MB
+        if len(txt) > 2_500_000:
+            txt = txt[:2_500_000]
+        return (txt, 200, {"Content-Type": "text/plain; charset=utf-8"})
+    except (HTTPError, URLError) as e:
+        return (f"Error HTTP al descargar: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"})
+    except Exception as e:
+        return (f"Error: {e}", 400, {"Content-Type": "text/plain; charset=utf-8"})
 
 # ---------------- Páginas por algoritmo ----------------
 @app.route("/algo/<name>")
