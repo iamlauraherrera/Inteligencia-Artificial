@@ -1,115 +1,103 @@
-<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>KNN – Visualizador</title>
-<style>
-    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto; }
-    header { display:flex; align-items:center; padding:12px 16px; background:#111827; border-bottom:1px solid #1f2937; }
-    body { margin:0; background:#0f172a; color:#e5e7eb; }
-h1 { margin:0; font-size:1.05rem; color:#fafafa; }
-.container{ max-width:1100px; margin:16px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 360px; gap:16px; }
-.card{ background:#111827; border:1px solid #1f2937; border-radius:14px; padding:16px; }
-.title{ font-weight:600; color:#fafafa; margin-bottom:8px; }
-#board.grid{ display:grid; gap:1px; background:#0b101d; padding:4px; border-radius:10px; }
-.cell{ display:flex; align-items:center; justify-content:center; background:#1f2937; border-radius:4px; aspect-ratio:1/1; font-size:.85rem; }
-.cell:hover{ filter:brightness(1.08); cursor:pointer; }
-.btn{ background:#2563eb; color:#e5e7eb; border:1px solid #2563eb; border-radius:10px; padding:10px 14px; margin-right:8px; }
-.btn.secondary{ background:#374151; border-color:#374151; }
-label{ color:#cbd5e1; display:block; margin-top:8px; font-size:.9rem; }
-input,select{ width:100%; box-sizing:border-box; background:#1f2937; color:#e5e7eb; border:1px solid #374151; border-radius:8px; padding:8px; }
-.stat{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.92rem; color:#cbd5e1; }
-</style>
-</head>
-<body>
-<header><h1>KNN – Visualizador</h1></header>
+# ─────────────────────────────────────────────────────────────────────────────
+# Algoritmo: K-Nearest Neighbors (K-NN) — Lógica mínima para simulación web
+# Autor: Laura Herrera · Fecha: 2025-10-14
+#
+# Requisitos: Solo librerías estándar (math, random).
+# Uso: Importado por app.py para la interfaz web. También puede ejecutarse
+#      en consola para una prueba rápida (ver bloque __main__).
+# ─────────────────────────────────────────────────────────────────────────────
 
-<div class="container">
-  <div class="card">
-    <div class="title">Plano (dataset sintético)</div>
-    <div id="board" class="grid"></div>
-  </div>
+import math
+import random
 
-  <div class="card">
-    <div class="title">Controles</div>
-    <label>k</label>
-    <input id="k" type="number" min="1" value="3"/>
-    <label>Métrica</label>
-    <select id="metric">
-      <option value="euclid">Euclidiana</option>
-      <option value="manhattan">Manhattan</option>
-    </select>
-    <label style="margin-top:8px;">Punto a clasificar (click en el plano)</label>
-    <div style="margin-top:10px;">
-      <button class="btn" id="classify">Clasificar</button>
-      <button class="btn secondary" id="reset">Reiniciar</button>
-      <a class="btn secondary" href="/">Volver</a>
-    </div>
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ 1) Funciones utilitarias                                                     ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║ distancia_euclidiana(p, q): retorna float                                   ║
+║   p=(x1,y1), q=(x2,y2)                                                       ║
+║ voto_mayoritario(labels): resuelve empates por orden alfabético              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+def distancia_euclidiana(p, q):
+    (x1, y1), (x2, y2) = p, q
+    dx, dy = (x1 - x2), (y1 - y2)
+    return math.hypot(dx, dy)
 
-    <div class="title" style="margin-top:10px;">Estado</div>
-    <div id="stat" class="stat"></div>
-  </div>
-</div>
+def voto_mayoritario(labels):
+    conteo = {}
+    for l in labels:
+        conteo[l] = conteo.get(l, 0) + 1
+    # mayor frecuencia; desempate: etiqueta menor alfabéticamente
+    mejor = max(conteo.items(), key=lambda kv: (kv[1], -ord(kv[0][0])))
+    # mejor = (label, freq)
+    # En caso de varias letras con misma freq y primer char igual, orden total:
+    empatadas = [k for k, v in conteo.items() if v == mejor[1]]
+    return sorted(empatadas)[0]
 
-<script>
-const name = "knn-algorithm.py";
-const board = document.getElementById('board');
-const stat = document.getElementById('stat');
-const N = 25; // cuadriculado N×N (render)
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ 2) Clase KNNModelo                                                           ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║ Atributos:                                                                   ║
+║   puntos: list[(x:float, y:float, clase:str)]  # coords normalizadas [0..1]  ║
+║   k: int                                                                     ║
+║   clases: set[str]                                                           ║
+║ Métodos (resumen):                                                           ║
+║   agregar(x,y,c), limpiar(), aleatorios(n, clases)                           ║
+║   predecir(x,y,k=None) -> (label, vecinos:[(idx, dist)])                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+class KNNModelo:
+    def __init__(self, k: int = 3):
+        self.puntos = []     # [(x, y, 'A'|'B'|...)]
+        self.k = max(1, int(k))
+        self.clases = set()
 
-async function j(url, opts={}){ const r = await fetch(url, opts); return r.json(); }
-async function getState(){ return j(`/api/${name}/state`); }
-async function act(action, payload={}){
-  return j(`/api/${name}/act`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action, ...payload})});
-}
-async function restart(){ return j(`/api/${name}/restart`, {method:'POST'}); }
+    def set_k(self, k: int):
+        self.k = max(1, int(k))
 
-function drawGrid(state){
-  // state esperado (opcional): { puntos: [{i,j,clase}], query:{i,j}, vecinos:[idx...], pred:"A"/"B" }
-  board.innerHTML = '';
-  board.style.gridTemplateColumns = `repeat(${N},1fr)`;
+    def agregar(self, x: float, y: float, clase: str):
+        x = min(1.0, max(0.0, float(x)))
+        y = min(1.0, max(0.0, float(y)))
+        clase = str(clase)
+        self.puntos.append((x, y, clase))
+        self.clases.add(clase)
 
-  const puntos = state.puntos || [];             // dataset
-  const query  = state.query || null;            // punto a clasificar
-  const vecinos = new Set(state.vecinos || []);  // índices en puntos
-  const pred  = state.pred || '';
+    def limpiar(self):
+        self.puntos.clear()
+        self.clases.clear()
 
-  // Mapa rápido de ocupación para pintar
-  const occ = new Map();
-  puntos.forEach((p, idx)=> occ.set(p.i*N + p.j, {clase:p.clase, idx}));
-  const qIndex = query ? (query.i*N + query.j) : -1;
+    def aleatorios(self, n: int = 40, clases=("A", "B")):
+        for _ in range(max(0, int(n))):
+            self.agregar(random.random(), random.random(), random.choice(clases))
 
-  for (let i=0;i<N*N;i++){
-    const d = document.createElement('div');
-    d.className = 'cell';
-    if (occ.has(i)){
-      const {clase, idx} = occ.get(i);
-      d.style.background = clase === 'A' ? '#60a5fa' : '#f59e0b';
-      if (vecinos.has(idx)) d.style.outline = '2px solid #22c55e';
-    }
-    if (i === qIndex){
-      d.style.background = '#a78bfa';
-      d.style.outline = '2px dashed #fef08a';
-    }
-    // click define query
-    d.onclick = ()=>{
-      const ci = Math.floor(i / N), cj = i % N;
-      act('set_query', {i:ci, j:cj}).then(update);
-    };
-    board.appendChild(d);
-  }
-  stat.textContent = pred ? `Predicción: ${pred}` : (state.msg || '');
-}
+    def predecir(self, x: float, y: float, k: int | None = None):
+        """Devuelve (label_predicha, vecinos_ordenados)
+        vecinos_ordenados = lista de (indice_en_dataset, distancia) de tamaño k.
+        """
+        if not self.puntos:
+            return None, []
+        kk = max(1, int(k if k is not None else self.k))
+        # Distancias
+        dists = []
+        for i, (px, py, c) in enumerate(self.puntos):
+            d = distancia_euclidiana((x, y), (px, py))
+            dists.append((i, d))
+        dists.sort(key=lambda t: t[1])
+        vecinos = dists[:kk]
+        labels = [self.puntos[i][2] for i, _ in vecinos]
+        pred = voto_mayoritario(labels)
+        return pred, vecinos
 
-async function update(){ const {estado} = await getState(); drawGrid(estado||{}); }
-document.getElementById('classify').onclick = ()=>{
-  const k = parseInt(document.getElementById('k').value || '3', 10);
-  const metric = document.getElementById('metric').value;
-  act('classify', {k, metric}).then(update);
-};
-document.getElementById('reset').onclick = ()=> restart().then(update);
 
-update();
-</script>
-</body>
-</html>
+# ─────────────────────────────────────────────────────────────────────────────
+# Prueba rápida en consola (opcional)
+# ─────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    print("Demo KNN en consola (coords normalizadas [0..1])")
+    knn = KNNModelo(k=3)
+    knn.aleatorios(10, clases=("A", "B", "C"))
+    px, py = 0.5, 0.5
+    pred, vecinos = knn.predecir(px, py)
+    print(f"Consulta=({px:.2f},{py:.2f}) -> clase={pred}, vecinos={vecinos[:3]}")

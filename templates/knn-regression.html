@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>K-NN Regresión — Precio vs Kilometraje</title>
+<style>
+:root { font-family: system-ui, -apple-system, Segoe UI, Roboto; }
+body { margin:0; background:#0f172a; color:#e5e7eb; }
+header{ padding:12px 16px; background:#111827; border-bottom:1px solid #1f2937; }
+h1{ margin:0; font-size:1.05rem; color:#fafafa; }
+.wrap{ max-width:1120px; margin:16px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 360px; gap:14px; }
+.card{ background:#111827; border:1px solid #1f2937; border-radius:12px; padding:12px; }
+.title{ font-weight:600; margin:12px 0 8px; color:#fafafa; }
+.row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.btn{ background:#2563eb; border:1px solid #2563eb; color:#fff; border-radius:10px; padding:8px 12px; cursor:pointer; }
+.btn.s{ background:#374151; border-color:#374151; }
+.btn.warn{ background:#ef4444; border-color:#ef4444; }
+.input, select{ background:#0b101d; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; padding:6px 8px; }
+.small{ color:#9ca3af; font-size:.9rem; }
+.grid{ background:#0b101d; border:1px solid #1f2937; border-radius:12px; padding:8px; }
+.kpi{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.badge{ display:inline-flex; gap:6px; border:1px solid #374151; background:#1f2937; padding:2px 8px; border-radius:999px; font-size:.86rem; }
+.axis{ stroke:#374151; stroke-width:1; }
+.tick{ stroke:#374151; stroke-width:.6; }
+.lab{ fill:#9ca3af; font-size:11px; }
+.dot{ fill:#22d3ee; stroke:#0b101d; stroke-width:1.2; }
+.curve{ fill:none; stroke:#93c5fd; stroke-width:2; }
+.query{ fill:#f59e0b; stroke:#0b101d; stroke-width:1.6; }
+</style>
+</head>
+<body>
+<header><h1>K-NN Regresión — Precio vs Kilometraje</h1></header>
+
+<div class="wrap">
+  <!-- Lienzo -->
+  <div class="card">
+    <div class="title">Plano (click para agregar puntos — doble click limpia)</div>
+    <div class="grid">
+      <svg id="plot" viewBox="0 0 700 500" width="100%" height="500" style="background:#0a0f1c; border-radius:8px">
+        <rect x="60" y="20" width="620" height="440" fill="#0b101d"/>
+        <g id="axes"></g>
+        <path id="curve" class="curve" d=""/>
+        <g id="points"></g>
+        <circle id="qdot" class="query" r="5" cx="-100" cy="-100"/>
+      </svg>
+    </div>
+    <div class="kpi" id="kpi"></div>
+  </div>
+
+  <!-- Controles -->
+  <div class="card">
+    <div class="title">Configuración</div>
+    <div class="row">
+      <label>K: <input id="k" class="input" type="number" min="1" value="7" style="width:90px"></label>
+      <label><input id="w" type="checkbox" checked> Ponderado (1/dist)</label>
+    </div>
+    <div class="row">
+      <button class="btn" id="random">Aleatorios (50)</button>
+      <button class="btn warn" id="clear">Limpiar</button>
+      <a class="btn s" href="/">Volver</a>
+    </div>
+
+    <div class="title">Rangos</div>
+    <div class="row">
+      <label>km min <input id="xmin" class="input" type="number" value="0" style="width:110px"></label>
+      <label>km max <input id="xmax" class="input" type="number" value="250000" style="width:110px"></label>
+    </div>
+    <div class="row">
+      <label>$ min <input id="ymin" class="input" type="number" value="0" style="width:110px"></label>
+      <label>$ max <input id="ymax" class="input" type="number" value="60000" style="width:110px"></label>
+    </div>
+    <div class="row">
+      <button class="btn s" id="applyRange">Aplicar rangos</button>
+      <button class="btn s" id="curve">Dibujar curva</button>
+      <label class="small">Puntos curva: <input id="npts" type="number" value="64" min="8" max="256" class="input" style="width:90px"></label>
+    </div>
+
+    <div class="title">Predicción</div>
+    <div class="row">
+      <label>km <input id="qkm" class="input" type="range" min="0" max="250000" value="120000" step="1000" style="width:220px"></label>
+      <span class="small" id="qkmv">120000</span>
+    </div>
+    <div class="small" id="pred">—</div>
+
+    <div class="title">Ayuda</div>
+    <div class="small">
+      • Click en el gráfico: agrega un punto (km, precio).<br/>
+      • Doble click: limpia todo.<br/>
+      • Ajusta K y ponderado para ver cómo cambia la curva estimada.<br/>
+      • Usa el slider para predecir el precio a un kilometraje dado.
+    </div>
+  </div>
+</div>
+
+<script>
+const name="knn-regression.py";
+const svg = document.getElementById('plot');
+const gAxes = document.getElementById('axes');
+const gPts  = document.getElementById('points');
+const curve = document.getElementById('curve');
+const qdot  = document.getElementById('qdot');
+const kpi   = document.getElementById('kpi');
+
+const inpK = document.getElementById('k');
+const chkW = document.getElementById('w');
+const btnRand = document.getElementById('random');
+const btnClear= document.getElementById('clear');
+const xminEl = document.getElementById('xmin');
+const xmaxEl = document.getElementById('xmax');
+const yminEl = document.getElementById('ymin');
+const ymaxEl = document.getElementById('ymax');
+const nptsEl = document.getElementById('npts');
+const btnApply = document.getElementById('applyRange');
+const btnCurve = document.getElementById('curve');
+const qkmEl = document.getElementById('qkm');
+const qkmV  = document.getElementById('qkmv');
+const predEl= document.getElementById('pred');
+
+let estado = {};
+const PAD = {left:60, top:20, w:620, h:440};
+
+async function j(u,o={}){ const r=await fetch(u,o); return r.json(); }
+async function getS(){ return j(`/api/${name}/state`); }
+async function act(a){ return j(`/api/${name}/act`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a})}); }
+
+function scaleX(x){ const [xmin,xmax]=estado.rango_km||[0,1]; return PAD.left + (x-xmin)/(xmax-xmin) * PAD.w; }
+function scaleY(y){ const [ymin,ymax]=estado.rango_precio||[0,1]; return PAD.top  + (1-(y-ymin)/(ymax-ymin)) * PAD.h; }
+
+function drawAxes(){
+  gAxes.innerHTML='';
+  const ax = document.createElementNS('http://www.w3.org/2000/svg','line');
+  ax.setAttribute('x1', PAD.left); ax.setAttribute('y1', PAD.top+PAD.h);
+  ax.setAttribute('x2', PAD.left+PAD.w); ax.setAttribute('y2', PAD.top+PAD.h);
+  ax.setAttribute('class','axis'); gAxes.appendChild(ax);
+  const ay = document.createElementNS('http://www.w3.org/2000/svg','line');
+  ay.setAttribute('x1', PAD.left); ay.setAttribute('y1', PAD.top);
+  ay.setAttribute('x2', PAD.left); ay.setAttribute('y2', PAD.top+PAD.h);
+  ay.setAttribute('class','axis'); gAxes.appendChild(ay);
+  for(let i=0;i<=5;i++){
+    const tx = PAD.left + i*(PAD.w/5);
+    const ty = PAD.top  + i*(PAD.h/5);
+    const lx = document.createElementNS('http://www.w3.org/2000/svg','line');
+    lx.setAttribute('x1', tx); lx.setAttribute('y1', PAD.top+PAD.h);
+    lx.setAttribute('x2', tx); lx.setAttribute('y2', PAD.top+PAD.h+4);
+    lx.setAttribute('class','tick'); gAxes.appendChild(lx);
+    const ly = document.createElementNS('http://www.w3.org/2000/svg','line');
+    ly.setAttribute('x1', PAD.left-4); ly.setAttribute('y1', ty);
+    ly.setAttribute('x2', PAD.left);   ly.setAttribute('y2', ty);
+    ly.setAttribute('class','tick'); gAxes.appendChild(ly);
+  }
+  const [xmin,xmax]=estado.rango_km||[0,1];
+  const [ymin,ymax]=estado.rango_precio||[0,1];
+  const lxmin=document.createElementNS('http://www.w3.org/2000/svg','text');
+  lxmin.setAttribute('x', PAD.left); lxmin.setAttribute('y', PAD.top+PAD.h+16);
+  lxmin.setAttribute('class','lab'); lxmin.textContent = Math.round(xmin);
+  const lxmax=document.createElementNS('http://www.w3.org/2000/svg','text');
+  lxmax.setAttribute('x', PAD.left+PAD.w-24); lxmax.setAttribute('y', PAD.top+PAD.h+16);
+  lxmax.setAttribute('class','lab'); lxmax.textContent = Math.round(xmax);
+  const lymin=document.createElementNS('http://www.w3.org/2000/svg','text');
+  lymin.setAttribute('x', PAD.left-36); lymin.setAttribute('y', PAD.top+PAD.h);
+  lymin.setAttribute('class','lab'); lymin.textContent = Math.round(ymin);
+  const lymax=document.createElementNS('http://www.w3.org/2000/svg','text');
+  lymax.setAttribute('x', PAD.left-36); lymax.setAttribute('y', PAD.top+10);
+  lymax.setAttribute('class','lab'); lymax.textContent = Math.round(ymax);
+  gAxes.appendChild(lxmin); gAxes.appendChild(lxmax); gAxes.appendChild(lymin); gAxes.appendChild(lymax);
+}
+
+function render(){
+  const st = estado;
+  kpi.innerHTML='';
+  const b1=document.createElement('span'); b1.className='badge'; b1.textContent=`#Puntos=${(st.datos||[]).length}`;
+  const b2=document.createElement('span'); b2.className='badge'; b2.textContent=`K=${st.k}`;
+  const b3=document.createElement('span'); b3.className='badge'; b3.textContent= st.ponderado ? 'Ponderado' : 'Promedio';
+  kpi.appendChild(b1); kpi.appendChild(b2); kpi.appendChild(b3);
+
+  const [xmin,xmax]=st.rango_km||[0,1];
+  const [ymin,ymax]=st.rango_precio||[0,1];
+  xminEl.value=xmin; xmaxEl.value=xmax; yminEl.value=ymin; ymaxEl.value=ymax;
+  qkmEl.min=xmin; qkmEl.max=xmax; qkmEl.value = st.query_km ?? qkmEl.value;
+  qkmV.textContent = Math.round(qkmEl.value);
+
+  drawAxes();
+
+  gPts.innerHTML='';
+  (st.datos||[]).forEach(p=>{
+    const [km, precio] = p;
+    const cx=scaleX(km), cy=scaleY(precio);
+    const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', 4); c.setAttribute('class','dot');
+    gPts.appendChild(c);
+  });
+
+  if (Array.isArray(st.curva) && st.curva.length>1){
+    let d='';
+    st.curva.forEach((pt,i)=>{
+      const [x,y]=pt, cx=scaleX(x), cy=scaleY(y);
+      d += (i===0?`M ${cx} ${cy}`:` L ${cx} ${cy}`);
+    });
+    curve.setAttribute('d', d);
+  } else {
+    curve.setAttribute('d','');
+  }
+
+  if (st.query_km != null && st.y_hat != null){
+    qdot.setAttribute('cx', scaleX(st.query_km));
+    qdot.setAttribute('cy', scaleY(st.y_hat));
+    predEl.textContent = `km=${Math.round(st.query_km)} → precio estimado ≈ $${Math.round(st.y_hat)}`;
+  } else {
+    qdot.setAttribute('cx', -100); qdot.setAttribute('cy', -100);
+    predEl.textContent = '—';
+  }
+
+  inpK.value = st.k || 7;
+  chkW.checked = !!st.ponderado;
+}
+
+async function update(){ const r=await getS(); estado=r.estado||{}; render(); }
+
+svg.addEventListener('click', async (ev)=>{
+  const rect = svg.getBoundingClientRect();
+  const x = ev.clientX - rect.left; const y = ev.clientY - rect.top;
+  const [xmin,xmax]=estado.rango_km; const [ymin,ymax]=estado.rango_precio;
+  const km = xmin + Math.max(0, Math.min(1, (x - PAD.left)/PAD.w)) * (xmax - xmin);
+  const py = ymin + (1 - Math.max(0, Math.min(1, (y - PAD.top)/PAD.h))) * (ymax - ymin);
+  await act(`add:${km},${py}`); update();
+});
+svg.addEventListener('dblclick', async ()=>{ await act('clear'); update(); });
+
+inpK.onchange = async ()=>{ await act(`set_k:${parseInt(inpK.value||'7',10)}`); update(); };
+chkW.onchange = async ()=>{ await act(`set_weighted:${chkW.checked?1:0}`); update(); };
+
+btnRand.onclick = async ()=>{ await act('random:50'); update(); };
+btnClear.onclick= async ()=>{ await act('clear'); update(); };
+
+btnApply.onclick = async ()=>{
+  const xmin=parseFloat(xminEl.value), xmax=parseFloat(xmaxEl.value);
+  const ymin=parseFloat(yminEl.value), ymax=parseFloat(ymaxEl.value);
+  await act(`set_range_km:${xmin},${xmax}`);
+  await act(`set_range_price:${ymin},${ymax}`);
+  update();
+};
+btnCurve.onclick = async ()=>{
+  await act(`set_curve_pts:${parseInt(nptsEl.value||'64',10)}`);
+  await act('curve');
+  update();
+};
+
+qkmEl.oninput = async ()=>{
+  qkmV.textContent = Math.round(qkmEl.value);
+  await act(`predict:${parseFloat(qkmEl.value)}`);
+  update();
+};
+
+let PAD = {left:60, top:20, w:620, h:440};
+update();
+</script>
+</body>
+</html>

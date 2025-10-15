@@ -20,6 +20,7 @@ ALGO_FILES = [
     "algos/knn-algorithm.py",
     "algos/wumpus-algorithm.py",
     "algos/markov-algorithm.py",
+    "algos/knn-regression-algorithm.py",
 ]
 
 # ---------------- Utilidades de carga dinámica ----------------
@@ -699,7 +700,165 @@ def _markov_step(state, action: str, mod):
         return state
 
     return state
-# ---------------- Adaptador kNN  ------------------------
+# ─────────────── Adaptador K-NN ───────────────
+def _knn_init(mod):
+    modelo = mod.KNNModelo(k=3)
+    # Estado de simulación
+    return {
+        "modelo": modelo,
+        "ultima_pred": None,           # {"x":..,"y":..,"label":..,"vecinos":[(i,dist),...]}
+        "mostrar_vecinos": True,
+        "colores": {                   # colores por clase (UI)
+            "A": "#22c55e", "B": "#ef4444", "C": "#f59e0b", "D": "#3b82f6"
+        }
+    }
+
+def _knn_view(state):
+    m = state["modelo"]
+    up = state["ultima_pred"] or {}
+    return {
+        "k": m.k,
+        "puntos": m.puntos,            # [[x,y,clase], ...]
+        "clases": sorted(list(m.clases)) or ["A","B"],
+        "mostrar_vecinos": state["mostrar_vecinos"],
+        "ultima": up,                  # {"x","y","label","vecinos":[[idx,dist],...]}
+        "colores": state.get("colores", {})
+    }
+
+def _knn_step(state, action: str, mod):
+    m = state["modelo"]
+    if action == "clear":
+        m.limpiar()
+        state["ultima_pred"] = None
+        return state
+    if action.startswith("set_k:"):
+        k = int(action.split(":")[1])
+        m.set_k(k)
+        return state
+    if action.startswith("toggle_neighbors"):
+        state["mostrar_vecinos"] = not state["mostrar_vecinos"]
+        return state
+    if action.startswith("add:"):
+        # add:x,y,clase   (x,y en [0..1])
+        _, payload = action.split(":", 1)
+        xs, ys, clase = payload.split(",", 2)
+        m.agregar(float(xs), float(ys), clase.strip())
+        return state
+    if action.startswith("random:"):
+        n = int(action.split(":")[1])
+        # usa clases existentes o A/B por defecto
+        clases = sorted(list(m.clases)) or ["A", "B"]
+        m.aleatorios(n, clases=tuple(clases))
+        return state
+    if action.startswith("predict:"):
+        # predict:x,y
+        _, payload = action.split(":", 1)
+        xs, ys = payload.split(",", 1)
+        xq, yq = float(xs), float(ys)
+        label, vecinos = m.predecir(xq, yq)
+        state["ultima_pred"] = {
+            "x": xq, "y": yq, "label": label,
+            "vecinos": [[i, float(d)] for (i, d) in vecinos]
+        }
+        return state
+    return state
+
+# ─────────────── Adaptador K-NN Regresión ───────────────
+# ─────────────── Adaptador K-NN Regresión ───────────────
+def _knnreg_init(mod):
+    modelo = mod.KNNRegresion(k=7, ponderado=True)
+    return {
+        "modelo": modelo,
+        "rango_km": (0.0, 250_000.0),
+        "rango_precio": (0.0, 60_000.0),
+        "query_km": None,
+        "y_hat": None,
+        "curva": [],
+        "npts_curva": 64
+    }
+
+def _knnreg_view(state):
+    m = state["modelo"]
+    return {
+        "k": m.k,
+        "ponderado": m.ponderado,
+        "datos": m.datos,
+        "rango_km": state["rango_km"],
+        "rango_precio": state["rango_precio"],
+        "query_km": state["query_km"],
+        "y_hat": state["y_hat"],
+        "curva": state["curva"],
+        "npts_curva": state["npts_curva"]
+    }
+
+def _knnreg_step(state, action: str, mod):
+    m = state["modelo"]
+
+    if action == "clear":
+        m.limpiar(); state.update({"query_km": None, "y_hat": None, "curva": []})
+        return state
+
+    if action.startswith("set_k:"):
+        m.set_k(int(action.split(":")[1]))
+        if state["query_km"] is not None:
+            y = m.predecir(state["query_km"]); state["y_hat"] = y
+        if state["curva"]:
+            xmin, xmax = state["rango_km"]
+            state["curva"] = m.curva(xmin, xmax, state["npts_curva"])
+        return state
+
+    if action.startswith("set_weighted:"):
+        b = bool(int(action.split(":")[1]))
+        m.set_ponderado(b)
+        if state["query_km"] is not None:
+            state["y_hat"] = m.predecir(state["query_km"])
+        if state["curva"]:
+            xmin, xmax = state["rango_km"]
+            state["curva"] = m.curva(xmin, xmax, state["npts_curva"])
+        return state
+
+    if action.startswith("add:"):
+        _, payload = action.split(":", 1)
+        skm, sp = payload.split(",", 1)
+        km, precio = float(skm), float(sp)
+        m.agregar(km, precio)
+        return state
+
+    if action.startswith("random:"):
+        n = int(action.split(":")[1])
+        m.aleatorios(n=n, rango_km=state["rango_km"], rango_precio=state["rango_precio"])
+        return state
+
+    if action.startswith("predict:"):
+        km = float(action.split(":")[1])
+        y = m.predecir(km)
+        state["query_km"] = km
+        state["y_hat"] = y
+        return state
+
+    if action == "curve":
+        xmin, xmax = state["rango_km"]
+        state["curva"] = m.curva(xmin, xmax, state["npts_curva"])
+        return state
+
+    if action.startswith("set_range_km:"):
+        _, payload = action.split(":", 1)
+        smin, smax = payload.split(",", 1)
+        state["rango_km"] = (float(smin), float(smax))
+        return state
+
+    if action.startswith("set_range_price:"):
+        _, payload = action.split(":", 1)
+        smin, smax = payload.split(",", 1)
+        state["rango_precio"] = (float(smin), float(smax))
+        return state
+
+    if action.startswith("set_curve_pts:"):
+        npts = max(8, int(action.split(":")[1]))
+        state["npts_curva"] = npts
+        return state
+
+    return state
 
 # ----------------------------------------------------- Inicialización por archivo ------------------------------------------------
 def init_for(algo_name: str):
@@ -714,6 +873,10 @@ def init_for(algo_name: str):
         return ("wumpus", mod, _wumpus_init(mod), "Wumpus (probabilístico)")
     if name == "markov-algorithm.py":
         return ("markov", mod, _markov_init(mod), "Cadena de Markov (n-gramas)")
+    if name == "knn-algorithm.py":
+        return ("knn", mod, _knn_init(mod), "K-NN (k-vecinos más cercanos)")
+    if name == "knn-regression.py":
+        return ("knnreg", mod, _knnreg_init(mod), "K-NN Regresión (k-vecinos más cercanos)")
     return ("static", mod, {}, f"{name}")
 
 def view_for(algo_name: str, mod, state):
@@ -722,6 +885,8 @@ def view_for(algo_name: str, mod, state):
     if name == "a-algorithm.py": return _astar_view(state)
     if name == "wumpus-algorithm.py": return _wumpus_view(state)
     if name == "markov-algorithm.py": return _markov_view(state)
+    if name == "knn-algorithm.py": return _knn_view(state)
+    if name == "knn-regression.py": return _knnreg_view(state)
     return {}
 
 def step_for(algo_name: str, mod, state, action):
@@ -730,6 +895,7 @@ def step_for(algo_name: str, mod, state, action):
     if name == "a-algorithm.py": return _astar_step(state, action, mod)
     if name == "wumpus-algorithm.py": return _wumpus_step(state, action, mod)
     if name == "markov-algorithm.py": return _markov_step(state, action, mod)
+    if name == "knn-regression.py": return _knnreg_step(state, action, mod)
     return state
 
 # ---------------- Portada desde docs/ ----------------
@@ -741,6 +907,7 @@ def root_index():
     links = [f'<li><a href="/algo/{_algo_key(f)}">{_algo_key(f)}</a></li>' for f in ALGO_FILES]
     return f"<h1>Algoritmos</h1><ul>{''.join(links)}</ul>"
 
+#---------------- Insercion para libros txt ------------------
 @app.route("/docs/<path:filename>")
 def docs_static(filename):
     return send_from_directory("docs", filename)

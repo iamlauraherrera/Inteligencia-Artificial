@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>K-NN — Simulación</title>
+<style>
+:root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu; }
+body { margin:0; background:#0f172a; color:#e5e7eb; }
+header{ padding:12px 16px; background:#111827; border-bottom:1px solid #1f2937; }
+h1{ margin:0; font-size:1.05rem; color:#fafafa; }
+.wrap{ max-width:1080px; margin:16px auto; padding:0 16px; display:grid; grid-template-columns: 1fr 360px; gap:14px; }
+.card{ background:#111827; border:1px solid #1f2937; border-radius:12px; padding:12px; }
+.title{ font-weight:600; margin:12px 0 8px; color:#fafafa; }
+.row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.btn{ background:#2563eb; border:1px solid #2563eb; color:#fff; border-radius:10px; padding:8px 12px; cursor:pointer; }
+.btn.s{ background:#374151; border-color:#374151; }
+.btn.warn{ background:#ef4444; border-color:#ef4444; }
+.input, select{ background:#0b101d; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; padding:6px 8px; }
+.small{ color:#9ca3af; font-size:.9rem; }
+.legend{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.tag{ display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border:1px solid #374151; background:#1f2937; border-radius:999px; font-size:.85rem; }
+.dot{ width:10px; height:10px; border-radius:999px; display:inline-block; }
+.grid{ background:#0b101d; border:1px solid #1f2937; border-radius:12px; padding:8px; }
+.kpi{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.badge{ display:inline-flex; gap:6px; border:1px solid #374151; background:#1f2937; padding:2px 8px; border-radius:999px; font-size:.86rem; }
+</style>
+</head>
+<body>
+<header><h1>K-NN — Simulación</h1></header>
+
+<div class="wrap">
+  <!-- Lienzo -->
+  <div class="card">
+    <div class="title">Plano (click para agregar puntos)</div>
+    <div class="grid">
+      <svg id="canvas" viewBox="0 0 500 500" width="100%" height="500" style="background:#0a0f1c; border-radius:8px">
+        <!-- cuadrícula ligera -->
+        <defs>
+          <pattern id="grid" width="25" height="25" patternUnits="userSpaceOnUse">
+            <path d="M 25 0 L 0 0 0 25" fill="none" stroke="#1f2937" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)"/>
+        <g id="edges"></g>
+        <g id="points"></g>
+        <g id="query"></g>
+      </svg>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="kpi" id="kpi"></div>
+  </div>
+
+  <!-- Controles -->
+  <div class="card">
+    <div class="title">Controles</div>
+    <div class="row">
+      <label>K:
+        <input id="k" type="number" class="input" min="1" value="3" style="width:80px">
+      </label>
+      <label>Clase:
+        <select id="clase" class="input">
+          <option>A</option><option>B</option><option>C</option><option>D</option>
+        </select>
+      </label>
+      <button class="btn s" id="toggleN">Mostrar vecinos</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button class="btn" id="random">Aleatorios (30)</button>
+      <button class="btn warn" id="clear">Limpiar</button>
+    </div>
+    <div class="title">Consulta</div>
+    <div class="small">Shift+Click en el plano para consultar una predicción en esa coordenada.</div>
+    <div id="pred" class="small" style="margin-top:8px">—</div>
+
+    <div class="title">Ayuda</div>
+    <div class="small">
+      • Click normal: agrega punto de la clase seleccionada.<br/>
+      • Shift+Click: consulta K-NN en esa posición (se marca en blanco).<br/>
+      • Los vecinos usados se conectan con líneas y se listan abajo.
+    </div>
+    <div id="vecinos" class="small" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<script>
+const name = "knn-algorithm.py";
+const svg = document.getElementById('canvas');
+const gPts = document.getElementById('points');
+const gEdges = document.getElementById('edges');
+const gQuery = document.getElementById('query');
+const legend = document.getElementById('legend');
+const kpi = document.getElementById('kpi');
+
+const inpK = document.getElementById('k');
+const selClase = document.getElementById('clase');
+const btnToggle = document.getElementById('toggleN');
+const btnRand = document.getElementById('random');
+const btnClear= document.getElementById('clear');
+const lblPred = document.getElementById('pred');
+const boxVec = document.getElementById('vecinos');
+
+let estado = {};
+
+async function j(u,o={}){ const r=await fetch(u,o); return r.json(); }
+async function state(){ return j(`/api/${name}/state`); }
+async function act(a){ return j(`/api/${name}/act`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:a})}); }
+
+function colorDe(clase){
+  const map = estado.colores || {};
+  return map[clase] || "#93c5fd";
+}
+function toBoard(x,y){ return [x*500, (1-y)*500]; } // y invertido para arriba
+
+function render(){
+  const st = estado;
+  // K / toggle
+  inpK.value = st.k || 3;
+  btnToggle.textContent = (st.mostrar_vecinos ? "Ocultar vecinos" : "Mostrar vecinos");
+
+  // leyenda
+  legend.innerHTML = '';
+  (st.clases || ["A","B"]).forEach(c=>{
+    const div=document.createElement('div'); div.className='tag';
+    const dot=document.createElement('span'); dot.className='dot'; dot.style.background=colorDe(c);
+    div.appendChild(dot); div.appendChild(document.createTextNode(' '+c));
+    legend.appendChild(div);
+  });
+
+  // KPIs
+  kpi.innerHTML='';
+  const b1=document.createElement('span'); b1.className='badge'; b1.textContent=`#Puntos=${(st.puntos||[]).length}`;
+  const b2=document.createElement('span'); b2.className='badge'; b2.textContent=`K=${st.k}`;
+  kpi.appendChild(b1); kpi.appendChild(b2);
+
+  // puntos
+  gPts.innerHTML = '';
+  (st.puntos||[]).forEach((p,idx)=>{
+    const [x,y,c]=p, [sx,sy]=toBoard(x,y);
+    const circ = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circ.setAttribute('cx', sx); circ.setAttribute('cy', sy);
+    circ.setAttribute('r', 6);
+    circ.setAttribute('fill', colorDe(c));
+    circ.setAttribute('stroke', '#0b101d'); circ.setAttribute('stroke-width', '1.5');
+    gPts.appendChild(circ);
+  });
+
+  // consulta + vecinos
+  gQuery.innerHTML=''; gEdges.innerHTML='';
+  boxVec.innerHTML=''; lblPred.textContent='—';
+  const up = st.ultima || {};
+  if (up.x !== undefined){
+    const [qx,qy]=toBoard(up.x, up.y);
+    const marker = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    marker.setAttribute('cx', qx); marker.setAttribute('cy', qy);
+    marker.setAttribute('r', 7);
+    marker.setAttribute('fill', '#ffffff'); marker.setAttribute('stroke', '#111827');
+    gQuery.appendChild(marker);
+
+    if (up.label){
+      lblPred.textContent = `Predicción: clase ${up.label}`;
+    }
+    if ((estado.mostrar_vecinos) && Array.isArray(up.vecinos)){
+      const list = document.createElement('div');
+      list.textContent = 'Vecinos usados:';
+      boxVec.appendChild(list);
+      up.vecinos.forEach(v=>{
+        const i=v[0], d=v[1];
+        const p = st.puntos[i]; if (!p) return;
+        const [sx,sy]=toBoard(p[0], p[1]);
+        // arista
+        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1', qx); line.setAttribute('y1', qy);
+        line.setAttribute('x2', sx); line.setAttribute('y2', sy);
+        line.setAttribute('stroke', '#cbd5e1'); line.setAttribute('stroke-dasharray', '4,4');
+        gEdges.appendChild(line);
+        // item lista
+        const item = document.createElement('div');
+        item.textContent = `#${i} · clase ${p[2]} · dist=${d.toFixed(3)}`;
+        boxVec.appendChild(item);
+      });
+    }
+  }
+}
+
+async function update(){ const r=await state(); estado=r.estado||{}; render(); }
+
+inpK.onchange = async ()=>{
+  const k = Math.max(1, parseInt(inpK.value||'3',10));
+  await act(`set_k:${k}`); update();
+};
+btnToggle.onclick = async ()=>{ await act('toggle_neighbors'); update(); };
+btnClear.onclick  = async ()=>{ await act('clear'); update(); };
+btnRand.onclick   = async ()=>{ await act('random:30'); update(); };
+
+svg.addEventListener('click', async (ev)=>{
+  const rect = svg.getBoundingClientRect();
+  const x = (ev.clientX - rect.left)/rect.width;
+  const y = 1 - (ev.clientY - rect.top)/rect.height;
+  if (ev.shiftKey){
+    await act(`predict:${x},${y}`);
+  } else {
+    await act(`add:${x},${y},${selClase.value}`);
+  }
+  update();
+});
+
+// init
+update();
+</script>
+</body>
+</html>
